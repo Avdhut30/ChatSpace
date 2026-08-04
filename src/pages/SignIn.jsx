@@ -14,6 +14,7 @@ const SignIn = () => {
   const [authNotice, setAuthNotice] = useState(null);
 
   const isRegistering = mode === 'register';
+  const authCallbackUrl = `${window.location.origin}/auth/callback`;
 
   const changeMode = nextMode => {
     setMode(nextMode);
@@ -40,7 +41,7 @@ const SignIn = () => {
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: confirmationEmail,
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: authCallbackUrl },
       });
       if (error) throw error;
       showConfirmationNotice(confirmationEmail, true);
@@ -59,7 +60,7 @@ const SignIn = () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: window.location.origin },
+        options: { redirectTo: authCallbackUrl },
       });
       if (error) throw error;
     } catch (error) {
@@ -104,7 +105,7 @@ const SignIn = () => {
           password,
           options: {
             data: { full_name: normalizedName },
-            emailRedirectTo: window.location.origin,
+            emailRedirectTo: authCallbackUrl,
           },
         });
 

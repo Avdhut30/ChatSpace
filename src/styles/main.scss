@@ -161,6 +161,63 @@ textarea {
   animation: loadingSpin 750ms linear infinite;
 }
 
+.auth-callback-page {
+  display: grid;
+  min-height: 100%;
+  padding: 24px;
+  place-items: center;
+  background:
+    radial-gradient(
+      circle at 50% 42%,
+      rgba(59, 130, 246, 0.12),
+      transparent 32%
+    ),
+    var(--slate-50);
+}
+
+.auth-callback-card {
+  display: flex;
+  width: min(420px, 100%);
+  padding: 38px;
+  align-items: center;
+  flex-direction: column;
+  border: 1px solid var(--slate-200);
+  border-radius: 18px;
+  background: var(--white);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+
+  h1 {
+    margin: 18px 0 8px;
+    color: var(--slate-900);
+    font-size: 24px;
+  }
+
+  p {
+    margin: 0 0 22px;
+    color: var(--slate-500);
+    line-height: 1.6;
+  }
+
+  .app-loading__spinner {
+    margin-top: 22px;
+  }
+}
+
+.auth-callback-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 18px;
+}
+
+.auth-callback-icon--error {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
 @keyframes loadingSpin {
   to {
     transform: rotate(360deg);
