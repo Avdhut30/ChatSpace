@@ -1,0 +1,57 @@
+{
+  "name": "chat-application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase": "^12.17.0",
+    "react": "^17.0.2",
+    "react-avatar-editor": "^15.1.0",
+    "react-dom": "^17.0.2",
+    "react-router": "^5.3.4",
+    "react-router-dom": "^5.3.4",
+    "rsuite": "^4.11.1",
+    "timeago-react": "^3.0.7",
+    "use-context-selector": "^1.4.4"
+  },
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src",
+    "format": "prettier --write \"src/**/*.{js,jsx,scss}\"",
+    "format:lint": "npm run format && npm run lint"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "sass": "^1.102.0",
+    "vite": "^8.2.0",
+    "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "brace-expansion": "^1.1.18",
+    "jsdom": "^30.0.1",
+    "lodash": "^4.18.1",
+    "path-to-regexp": "^1.9.0",
+    "websocket-driver": "^0.7.5"
+  }
+}
