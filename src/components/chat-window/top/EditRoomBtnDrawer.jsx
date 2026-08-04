@@ -3,7 +3,7 @@ import { useParams } from 'react-router';
 import { Alert, Button, Drawer, Icon } from 'rsuite';
 import { useCurrentRoom } from '../../../context/current-room.context';
 import { useMediaQuery, useModalState } from '../../../misc/custom-hooks';
-import { database } from '../../../misc/firebase';
+import { supabase } from '../../../misc/supabase';
 import EditableInput from '../../EditableInput';
 
 const EditRoomBtnDrawer = () => {
@@ -14,17 +14,18 @@ const EditRoomBtnDrawer = () => {
   const name = useCurrentRoom(v => v.name);
   const description = useCurrentRoom(v => v.description);
 
-  const updateData = (key, value) => {
-    database
-      .ref(`rooms/${chatId}`)
-      .child(key)
-      .set(value)
-      .then(() => {
-        Alert.success('Successfully updated', 4000);
-      })
-      .catch(err => {
-        Alert.error(err.message, 4000);
-      });
+  const updateData = async (key, value) => {
+    const column = key === 'name' ? 'name' : 'description';
+    const { error } = await supabase
+      .from('rooms')
+      .update({ [column]: value })
+      .eq('id', chatId);
+
+    if (error) {
+      Alert.error(error.message, 4000);
+    } else {
+      Alert.success('Successfully updated', 4000);
+    }
   };
 
   const onNameSave = newName => {

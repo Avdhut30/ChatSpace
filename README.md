@@ -1,74 +1,73 @@
-### App Link    https://chat-web-app-d3b70.web.app/chat/-Md8iiDdZJVOp11lic4i
+# ChatSpace
 
----
+A professional, responsive realtime chat application built with React, Vite,
+Supabase and RSuite.
 
-# Getting Started with Create React App
+## Features
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+- Email/password registration and login, plus Google authentication
+- Realtime rooms, messages, reactions and presence
+- Private file sharing, image previews and voice messages
+- Room and in-chat search
+- Room administration and profile settings
+- Croppable custom profile photos
+- Persistent per-room drafts and quick emoji input
+- Responsive desktop and mobile interface
+- Row Level Security through Supabase
 
-## Available Scripts
+## Local setup
 
-In the project directory, you can run:
+Install dependencies:
 
-### `npm start`
+```bash
+npm install
+```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+Create `.env.local`:
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
 
-### `npm test`
+Apply the SQL migration in `supabase/migrations` to your Supabase project. Email
+authentication is available by default; enable Google if you also want social
+sign-in.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Start the app:
 
-### `npm run build`
+```bash
+npm run start
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Open <http://localhost:5173>.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Production deployment
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Supabase hosts the database, authentication, realtime services, storage, and
+database migrations. Deploy the Vite frontend to Vercel:
 
-### `npm run eject`
+1. Import the `Avdhut30/ChatSpace` GitHub repository in Vercel.
+2. Keep the detected framework preset as Vite.
+3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the Vercel
+   project environment variables.
+4. Deploy the project. `vercel.json` supplies the build directory and SPA route
+   fallback.
+5. In Supabase Authentication URL Configuration, set the Site URL to the final
+   Vercel production URL and add both the production URL and localhost as
+   allowed redirect URLs.
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+Database migrations inside `supabase/migrations` can continue deploying through
+the Supabase GitHub integration connected to the `main` branch.
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Validation
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+```bash
+npm run lint
+npm test
+npm run build
+npm audit
+```
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Never commit `.env.local`, a database password, or a Supabase secret/service-role
+key.

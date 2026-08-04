@@ -6,11 +6,17 @@ import { useCurrentRoom } from '../../../context/current-room.context';
 import RoomInfoBtnModal from './RoomInfoBtnModal';
 import EditRoomBtnDrawer from './EditRoomBtnDrawer';
 
-const Top = ({ searchQuery, onSearchChange }) => {
+const Top = ({ searchQuery, onSearchChange, typingUsers = [] }) => {
   const name = useCurrentRoom(v => v.name);
   const description = useCurrentRoom(v => v.description);
   const isAdmin = useCurrentRoom(v => v.isAdmin);
   const isMobile = useMediaQuery('(max-width : 992px)');
+  const typingText =
+    typingUsers.length === 1
+      ? `${typingUsers[0].name} is typing…`
+      : typingUsers.length > 1
+        ? `${typingUsers.length} people are typing…`
+        : '';
 
   return (
     <header className="chat-header">
@@ -29,8 +35,10 @@ const Top = ({ searchQuery, onSearchChange }) => {
           />
           <span className="text-disappear">{name}</span>
         </h4>
-        <p className="chat-header__description text-disappear">
-          {description || 'A shared space for this conversation'}
+        <p
+          className={`chat-header__description text-disappear ${typingText ? 'is-typing' : ''}`}
+        >
+          {typingText || description || 'A shared space for this conversation'}
         </p>
       </div>
 

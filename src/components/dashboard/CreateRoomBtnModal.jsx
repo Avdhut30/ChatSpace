@@ -10,9 +10,9 @@ import {
   Schema,
   Alert,
 } from 'rsuite';
-import firebase from 'firebase/compat/app';
+import { useProfile } from '../../context/profile.context';
 import { useModalState } from '../../misc/custom-hooks';
-import { auth, database } from '../../misc/firebase';
+import { supabase } from '../../misc/supabase';
 
 const { StringType } = Schema.Types;
 
@@ -28,6 +28,7 @@ const INITIAL_FORM = {
 
 const CreateRoomBtnModal = () => {
   const { isOpen, open, close } = useModalState();
+  const { profile } = useProfile();
 
   const [formValue, setFormValue] = useState(INITIAL_FORM);
   const [isLoading, setIsLoading] = useState(false);
@@ -45,16 +46,24 @@ const CreateRoomBtnModal = () => {
 
     setIsLoading(true);
 
-    const newRoomdata = {
-      ...formValue,
-      createdAt: firebase.database.ServerValue.TIMESTAMP,
-      admins: {
-        [auth.currentUser.uid]: true,
-      },
-    };
-
     try {
-      await database.ref('rooms').push(newRoomdata);
+      const { data: room, error: roomError } = await supabase
+        .from('rooms')
+        .insert({
+          name: formValue.name,
+          description: formValue.description,
+          created_by: profile.uid,
+        })
+        .select('id')
+        .single();
+
+      if (roomError) throw roomError;
+
+      const { error: memberError } = await supabase
+        .from('room_members')
+        .insert({ room_id: room.id, user_id: profile.uid, is_admin: true });
+
+      if (memberError) throw memberError;
 
       Alert.success(`${formValue.name} has been created`, 4000);
       setIsLoading(false);

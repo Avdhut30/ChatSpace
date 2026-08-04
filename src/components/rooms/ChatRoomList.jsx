@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Icon, Input, InputGroup, Loader, Nav } from 'rsuite';
 import RoomItem from './RoomItem';
@@ -8,6 +8,25 @@ const ChatRoomList = () => {
   const rooms = useRooms();
   const location = useLocation();
   const [search, setSearch] = useState('');
+  const [seenVersion, setSeenVersion] = useState(0);
+  const searchRef = useRef();
+
+  useEffect(() => {
+    const handleRoomSeen = () => setSeenVersion(version => version + 1);
+    const handleShortcut = event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('chatspace:room-seen', handleRoomSeen);
+    window.addEventListener('keydown', handleShortcut);
+    return () => {
+      window.removeEventListener('chatspace:room-seen', handleRoomSeen);
+      window.removeEventListener('keydown', handleShortcut);
+    };
+  }, []);
 
   const filteredRooms = useMemo(() => {
     if (!rooms) return [];
@@ -38,6 +57,7 @@ const ChatRoomList = () => {
           <Icon icon="search" />
         </InputGroup.Addon>
         <Input
+          inputRef={searchRef}
           value={search}
           onChange={setSearch}
           placeholder="Search conversations"
@@ -81,7 +101,20 @@ const ChatRoomList = () => {
             key={room.id}
             eventKey={`/chat/${room.id}`}
           >
-            <RoomItem room={room} />
+            <RoomItem
+              room={room}
+              hasUnread={
+                Boolean(room.lastMessage) &&
+                location.pathname !== `/chat/${room.id}` &&
+                new Date(room.lastMessage.createdAt).getTime() >
+                  new Date(
+                    window.localStorage.getItem(
+                      `chatspace:last-seen:${room.id}`
+                    ) || 0
+                  ).getTime() &&
+                seenVersion >= 0
+              }
+            />
           </Nav.Item>
         ))}
       </Nav>

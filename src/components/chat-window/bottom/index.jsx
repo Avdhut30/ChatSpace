@@ -1,84 +1,345 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { Alert, Icon, Input, InputGroup } from 'rsuite';
-import firebase from 'firebase/compat/app';
 import { useProfile } from '../../../context/profile.context';
-import { database } from '../../../misc/firebase';
+import {
+  publishMessageUpdate,
+  requestRoomsRefresh,
+} from '../../../misc/chat-events';
+import { supabase } from '../../../misc/supabase';
 
 const MAX_MESSAGE_LENGTH = 1000;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '👋', '🙌'];
+const FILE_ACCEPT =
+  'image/*,audio/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip';
 
-function assembleMessage(profile, chatId) {
-  return {
-    roomId: chatId,
-    author: {
-      name: profile.name,
-      uid: profile.uid,
-      createdAt: profile.createdAt,
-      ...(profile.avatar ? { avatar: profile.avatar } : {}),
-    },
-    createdAt: firebase.database.ServerValue.TIMESTAMP,
-    likeCount: 0,
-  };
+function getRecordingMimeType() {
+  if (window.MediaRecorder?.isTypeSupported('audio/webm;codecs=opus')) {
+    return 'audio/webm;codecs=opus';
+  }
+  if (window.MediaRecorder?.isTypeSupported('audio/ogg;codecs=opus')) {
+    return 'audio/ogg;codecs=opus';
+  }
+  return '';
 }
 
-const Bottom = () => {
+function formatDuration(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+const Bottom = ({ onTyping }) => {
   const { chatId } = useParams();
   const { profile } = useProfile();
   const draftKey = `chatspace:draft:${chatId}`;
   const [input, setInput] = useState(
     () => window.localStorage.getItem(draftKey) || ''
   );
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [showEmojis, setShowEmojis] = useState(false);
+  const typingTimeoutRef = useRef();
+  const fileInputRef = useRef();
+  const recorderRef = useRef();
+  const recordingChunksRef = useRef([]);
+  const recordingStreamRef = useRef();
+  const recordingTimerRef = useRef();
+  const discardRecordingRef = useRef(false);
 
   const saveDraft = useCallback(
     value => {
       setInput(value);
-
-      if (value) {
-        window.localStorage.setItem(draftKey, value);
-      } else {
-        window.localStorage.removeItem(draftKey);
-      }
+      if (value) window.localStorage.setItem(draftKey, value);
+      else window.localStorage.removeItem(draftKey);
     },
     [draftKey]
   );
 
-  const onInputChange = useCallback(
-    value => saveDraft(value.slice(0, MAX_MESSAGE_LENGTH)),
-    [saveDraft]
+  const createPendingMessage = useCallback(
+    data => ({
+      id: `pending-${profile.uid}-${Date.now()}`,
+      text: data.text || '',
+      file: data.file || null,
+      createdAt: new Date().toISOString(),
+      author: {
+        uid: profile.uid,
+        name: profile.name,
+        avatar: profile.avatar,
+        createdAt: profile.createdAt,
+      },
+      likes: {},
+      likeCount: 0,
+      isPending: true,
+    }),
+    [profile]
   );
 
-  const addEmoji = emoji => {
-    saveDraft(`${input}${emoji}`.slice(0, MAX_MESSAGE_LENGTH));
-  };
+  const stopRecordingResources = useCallback(() => {
+    window.clearInterval(recordingTimerRef.current);
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
+  }, []);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(typingTimeoutRef.current);
+      discardRecordingRef.current = true;
+      if (recorderRef.current?.state === 'recording') {
+        recorderRef.current.stop();
+      }
+      stopRecordingResources();
+      onTyping(false);
+    },
+    [onTyping, stopRecordingResources]
+  );
+
+  const onInputChange = useCallback(
+    value => {
+      const nextValue = value.slice(0, MAX_MESSAGE_LENGTH);
+      saveDraft(nextValue);
+      onTyping(Boolean(nextValue.trim()));
+      window.clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = window.setTimeout(() => onTyping(false), 1200);
+    },
+    [onTyping, saveDraft]
+  );
+
+  const sendAttachment = useCallback(
+    async file => {
+      if (!file || file.size === 0) return;
+      if (file.size > MAX_FILE_SIZE) {
+        Alert.error('Files must be 10 MB or smaller', 4000);
+        return;
+      }
+
+      const localUrl = URL.createObjectURL(file);
+      const pendingMessage = createPendingMessage({
+        file: {
+          url: localUrl,
+          name: file.name,
+          contentType: file.type || 'application/octet-stream',
+          size: file.size,
+        },
+      });
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-120);
+      const uniqueId = window.crypto.randomUUID?.() || Date.now().toString();
+      const filePath = `${profile.uid}/${chatId}/${uniqueId}-${safeName}`;
+
+      setIsUploading(true);
+      publishMessageUpdate({
+        type: 'add',
+        chatId,
+        message: pendingMessage,
+      });
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-files')
+        .upload(filePath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        URL.revokeObjectURL(localUrl);
+        publishMessageUpdate({
+          type: 'remove',
+          chatId,
+          messageId: pendingMessage.id,
+        });
+        Alert.error(
+          uploadError.message.toLowerCase().includes('bucket not found')
+            ? 'File storage is not configured. Run the file-messages Supabase migration.'
+            : uploadError.message,
+          5000
+        );
+        setIsUploading(false);
+        return;
+      }
+
+      const { data, error: messageError } = await supabase
+        .from('messages')
+        .insert({
+          room_id: chatId,
+          author_id: profile.uid,
+          text: '',
+          file_path: filePath,
+          file_name: file.name,
+          file_type: file.type || 'application/octet-stream',
+          file_size: file.size,
+        })
+        .select('id, created_at')
+        .single();
+
+      if (messageError) {
+        await supabase.storage.from('chat-files').remove([filePath]);
+        URL.revokeObjectURL(localUrl);
+        publishMessageUpdate({
+          type: 'remove',
+          chatId,
+          messageId: pendingMessage.id,
+        });
+        Alert.error(messageError.message, 4000);
+        setIsUploading(false);
+        return;
+      }
+
+      const { data: signedFile } = await supabase.storage
+        .from('chat-files')
+        .createSignedUrl(filePath, 60 * 60);
+      const secureUrl = signedFile?.signedUrl || localUrl;
+
+      publishMessageUpdate({
+        type: 'replace',
+        chatId,
+        messageId: pendingMessage.id,
+        message: {
+          ...pendingMessage,
+          id: data.id,
+          createdAt: data.created_at,
+          isPending: false,
+          file: {
+            path: filePath,
+            url: secureUrl,
+            name: file.name,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+          },
+        },
+      });
+
+      if (signedFile?.signedUrl) URL.revokeObjectURL(localUrl);
+      requestRoomsRefresh();
+      setIsUploading(false);
+    },
+    [chatId, createPendingMessage, profile.uid]
+  );
 
   const onSendClick = async () => {
-    if (input.trim() === '' || isLoading) return;
+    const text = input.trim();
+    if (!text || isSending || isUploading || isRecording) return;
 
-    const msgData = assembleMessage(profile, chatId);
-    msgData.text = input.trim();
+    const pendingMessage = createPendingMessage({ text });
+    setIsSending(true);
+    publishMessageUpdate({ type: 'add', chatId, message: pendingMessage });
+    saveDraft('');
+    setShowEmojis(false);
+    onTyping(false);
 
-    const messageId = database.ref('messages').push().key;
-    const updates = {
-      [`/messages/${messageId}`]: msgData,
-      [`/rooms/${chatId}/lastMessage`]: {
-        ...msgData,
-        msgId: messageId,
-      },
-    };
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({ room_id: chatId, author_id: profile.uid, text })
+      .select('id, created_at')
+      .single();
 
-    setIsLoading(true);
+    if (error) {
+      Alert.error(error.message, 4000);
+      publishMessageUpdate({
+        type: 'remove',
+        chatId,
+        messageId: pendingMessage.id,
+      });
+      saveDraft(text);
+    } else {
+      publishMessageUpdate({
+        type: 'replace',
+        chatId,
+        messageId: pendingMessage.id,
+        message: {
+          ...pendingMessage,
+          id: data.id,
+          createdAt: data.created_at,
+          isPending: false,
+        },
+      });
+      requestRoomsRefresh();
+    }
+    setIsSending(false);
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      Alert.error('Audio recording is not supported in this browser', 4000);
+      return;
+    }
 
     try {
-      await database.ref().update(updates);
-      saveDraft('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getRecordingMimeType();
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+
+      recordingStreamRef.current = stream;
+      recordingChunksRef.current = [];
+      discardRecordingRef.current = false;
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = event => {
+        if (event.data.size) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        stopRecordingResources();
+        setIsRecording(false);
+        Alert.error('The audio recording could not be completed', 4000);
+      };
+      recorder.onstop = async () => {
+        const shouldDiscard = discardRecordingRef.current;
+        const chunks = recordingChunksRef.current;
+        const recordingType = recorder.mimeType || 'audio/webm';
+        stopRecordingResources();
+        setIsRecording(false);
+        setRecordingSeconds(0);
+
+        if (shouldDiscard || !chunks.length) return;
+
+        const extension = recordingType.includes('ogg') ? 'ogg' : 'webm';
+        const blob = new Blob(chunks, { type: recordingType });
+        const recording = new File(
+          [blob],
+          `voice-note-${Date.now()}.${extension}`,
+          { type: recordingType }
+        );
+        await sendAttachment(recording);
+      };
+
+      recorder.start(250);
+      onTyping(false);
       setShowEmojis(false);
+      setRecordingSeconds(0);
+      setIsRecording(true);
+      const startedAt = Date.now();
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds(Math.floor((Date.now() - startedAt) / 1000));
+      }, 1000);
     } catch (error) {
-      Alert.error(error.message);
-    } finally {
-      setIsLoading(false);
+      stopRecordingResources();
+      Alert.error(
+        error.name === 'NotAllowedError'
+          ? 'Microphone permission was denied'
+          : error.message,
+        4000
+      );
+    }
+  };
+
+  const finishRecording = () => {
+    if (recorderRef.current?.state === 'recording') {
+      discardRecordingRef.current = false;
+      recorderRef.current.stop();
+    }
+  };
+
+  const discardRecording = () => {
+    if (recorderRef.current?.state === 'recording') {
+      discardRecordingRef.current = true;
+      recorderRef.current.stop();
     }
   };
 
@@ -89,15 +350,31 @@ const Bottom = () => {
     }
   };
 
+  const isBusy = isSending || isUploading;
+
   return (
     <div className="message-composer">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={FILE_ACCEPT}
+        className="visually-hidden"
+        onChange={event => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          sendAttachment(file);
+        }}
+      />
+
       {showEmojis && (
         <div className="emoji-picker" aria-label="Quick emoji picker">
           {QUICK_EMOJIS.map(emoji => (
             <button
               key={emoji}
               type="button"
-              onClick={() => addEmoji(emoji)}
+              onClick={() =>
+                saveDraft(`${input}${emoji}`.slice(0, MAX_MESSAGE_LENGTH))
+              }
               aria-label={`Add ${emoji} emoji`}
             >
               {emoji}
@@ -109,24 +386,45 @@ const Bottom = () => {
       <InputGroup className="message-composer__group">
         <InputGroup.Button
           onClick={() => setShowEmojis(value => !value)}
+          disabled={isBusy || isRecording}
           title="Add emoji"
           aria-label="Add emoji"
           className={showEmojis ? 'is-active' : ''}
         >
           <Icon icon="smile-o" />
         </InputGroup.Button>
+        <InputGroup.Button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isBusy || isRecording}
+          title="Attach a file"
+          aria-label="Attach a file"
+        >
+          <Icon icon="paperclip" />
+        </InputGroup.Button>
+        <InputGroup.Button
+          onClick={isRecording ? finishRecording : startRecording}
+          disabled={isBusy}
+          title={isRecording ? 'Stop and send recording' : 'Record audio'}
+          aria-label={isRecording ? 'Stop and send recording' : 'Record audio'}
+          className={isRecording ? 'is-recording' : ''}
+        >
+          <Icon icon={isRecording ? 'stop-circle' : 'microphone'} />
+        </InputGroup.Button>
         <Input
-          placeholder="Write a message…"
+          placeholder={
+            isRecording ? 'Recording voice message…' : 'Write a message…'
+          }
           value={input}
           onChange={onInputChange}
           onKeyDown={onKeyDown}
           maxLength={MAX_MESSAGE_LENGTH}
+          disabled={isRecording}
         />
         <InputGroup.Button
           color="blue"
           appearance="primary"
           onClick={onSendClick}
-          disabled={isLoading || input.trim() === ''}
+          disabled={isBusy || isRecording || input.trim() === ''}
           className="message-send-button"
           title="Send message"
         >
@@ -135,7 +433,20 @@ const Bottom = () => {
       </InputGroup>
 
       <div className="message-composer__meta">
-        <span>Drafts are saved on this device</span>
+        {isRecording ? (
+          <span className="recording-status">
+            <i /> Recording {formatDuration(recordingSeconds)}
+            <button type="button" onClick={discardRecording}>
+              Discard
+            </button>
+          </span>
+        ) : (
+          <span>
+            {isUploading
+              ? 'Uploading securely…'
+              : 'Files up to 10 MB · Drafts saved locally'}
+          </span>
+        )}
         <span className={input.length >= MAX_MESSAGE_LENGTH ? 'at-limit' : ''}>
           {input.length}/{MAX_MESSAGE_LENGTH}
         </span>

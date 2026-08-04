@@ -1,38 +1,138 @@
 import React, { useState } from 'react';
-import firebase from 'firebase/compat/app';
-import { Button, Icon, Alert } from 'rsuite';
-import { auth, database } from '../misc/firebase';
+import { Alert, Button, Icon } from 'rsuite';
+import { supabase } from '../misc/supabase';
 
 const SignIn = () => {
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [mode, setMode] = useState('login');
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState('');
+  const [authNotice, setAuthNotice] = useState(null);
 
-  const signInWithProvider = async provider => {
-    setIsSigningIn(true);
+  const isRegistering = mode === 'register';
+
+  const changeMode = nextMode => {
+    setMode(nextMode);
+    setPassword('');
+    setConfirmPassword('');
+    setAuthNotice(null);
+  };
+
+  const showConfirmationNotice = (address, wasResent = false) => {
+    setConfirmationEmail(address);
+    setAuthNotice({
+      type: 'confirmation',
+      text: wasResent
+        ? `A new confirmation link was sent to ${address}.`
+        : `Confirm ${address} from your inbox before logging in.`,
+    });
+  };
+
+  const resendConfirmation = async () => {
+    if (!confirmationEmail || isResending) return;
+    setIsResending(true);
+
     try {
-      const { additionalUserInfo, user } = await auth.signInWithPopup(provider);
-
-      if (additionalUserInfo.isNewUser) {
-        await database.ref(`/profiles/${user.uid}`).set({
-          name: user.displayName,
-          avatar: user.photoURL || null,
-          createdAt: firebase.database.ServerValue.TIMESTAMP,
-        });
-      }
-
-      Alert.success('Welcome back', 4000);
-    } catch (err) {
-      Alert.error(err.message, 4000);
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: confirmationEmail,
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (error) throw error;
+      showConfirmationNotice(confirmationEmail, true);
+    } catch (error) {
+      Alert.error(error.message, 5000);
     } finally {
-      setIsSigningIn(false);
+      setIsResending(false);
     }
   };
 
-  const onFacebookSignIn = () => {
-    signInWithProvider(new firebase.auth.FacebookAuthProvider());
+  const signInWithGoogle = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setAuthNotice(null);
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) throw error;
+    } catch (error) {
+      Alert.error(error.message, 4000);
+      setIsSubmitting(false);
+    }
   };
 
-  const onGoogleSignIn = () => {
-    signInWithProvider(new firebase.auth.GoogleAuthProvider());
+  const handleEmailAuth = async event => {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = displayName.trim();
+
+    if (!normalizedEmail || !password) {
+      Alert.error('Enter your email and password', 4000);
+      return;
+    }
+
+    if (isRegistering && normalizedName.length < 2) {
+      Alert.error('Enter a display name with at least 2 characters', 4000);
+      return;
+    }
+
+    if (isRegistering && password.length < 8) {
+      Alert.error('Password must contain at least 8 characters', 4000);
+      return;
+    }
+
+    if (isRegistering && password !== confirmPassword) {
+      Alert.error('Passwords do not match', 4000);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      if (isRegistering) {
+        const { data, error } = await supabase.auth.signUp({
+          email: normalizedEmail,
+          password,
+          options: {
+            data: { full_name: normalizedName },
+            emailRedirectTo: window.location.origin,
+          },
+        });
+
+        if (error) throw error;
+
+        if (!data.session) {
+          changeMode('login');
+          showConfirmationNotice(normalizedEmail);
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
+        if (error) throw error;
+      }
+    } catch (error) {
+      if (
+        error.code === 'email_not_confirmed' ||
+        error.message?.toLowerCase().includes('email not confirmed')
+      ) {
+        showConfirmationNotice(normalizedEmail);
+      } else {
+        Alert.error(error.message, 5000);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -47,39 +147,152 @@ const SignIn = () => {
             <span className="eyebrow">Your conversations, together</span>
             <h1>A focused space for your team to connect.</h1>
             <p>
-              Create rooms, share files, and keep every conversation moving in
+              Create rooms, find messages, and keep every conversation moving in
               one simple workspace.
             </p>
           </div>
-          <p className="signin-footnote">Fast · Private · Real-time</p>
+          <p className="signin-footnote">Fast / Private / Real-time</p>
         </section>
 
         <section className="signin-card-wrap">
           <div className="signin-card">
             <span className="eyebrow">Get started</span>
-            <h2>Welcome back</h2>
+            <h2>{isRegistering ? 'Create account' : 'Welcome back'}</h2>
             <p className="signin-card__subtitle">
-              Choose your preferred account to continue.
+              {isRegistering
+                ? 'Create your account to start chatting.'
+                : 'Sign in to continue to your conversations.'}
             </p>
 
-            <div className="signin-actions">
-              <Button
-                block
-                className="provider-button provider-button--google"
-                onClick={onGoogleSignIn}
-                disabled={isSigningIn}
+            <div className="auth-mode-switch" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!isRegistering}
+                className={!isRegistering ? 'is-active' : ''}
+                onClick={() => changeMode('login')}
+                disabled={isSubmitting}
               >
-                <Icon icon="google" /> Continue with Google
-              </Button>
-              <Button
-                block
-                className="provider-button provider-button--facebook"
-                onClick={onFacebookSignIn}
-                disabled={isSigningIn}
+                Log in
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isRegistering}
+                className={isRegistering ? 'is-active' : ''}
+                onClick={() => changeMode('register')}
+                disabled={isSubmitting}
               >
-                <Icon icon="facebook" /> Continue with Facebook
-              </Button>
+                Register
+              </button>
             </div>
+
+            {authNotice?.type === 'confirmation' && (
+              <div className="auth-notice" role="status">
+                <Icon icon="envelope-o" />
+                <div>
+                  <strong>Confirm your email</strong>
+                  <span>{authNotice.text}</span>
+                  <button
+                    type="button"
+                    onClick={resendConfirmation}
+                    disabled={isResending}
+                  >
+                    {isResending ? 'Sending…' : 'Resend confirmation email'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <form className="email-auth-form" onSubmit={handleEmailAuth}>
+              {isRegistering && (
+                <label>
+                  <span>Display name</span>
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={event => setDisplayName(event.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                    minLength="2"
+                    maxLength="50"
+                    disabled={isSubmitting}
+                    required
+                  />
+                </label>
+              )}
+
+              <label>
+                <span>Email address</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={event => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  disabled={isSubmitting}
+                  required
+                />
+              </label>
+
+              <label>
+                <span>Password</span>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={event => setPassword(event.target.value)}
+                  placeholder={
+                    isRegistering ? 'At least 8 characters' : 'Your password'
+                  }
+                  autoComplete={
+                    isRegistering ? 'new-password' : 'current-password'
+                  }
+                  minLength={isRegistering ? 8 : undefined}
+                  disabled={isSubmitting}
+                  required
+                />
+              </label>
+
+              {isRegistering && (
+                <label>
+                  <span>Confirm password</span>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={event => setConfirmPassword(event.target.value)}
+                    placeholder="Enter password again"
+                    autoComplete="new-password"
+                    minLength="8"
+                    disabled={isSubmitting}
+                    required
+                  />
+                </label>
+              )}
+
+              <Button
+                block
+                appearance="primary"
+                type="submit"
+                className="email-auth-submit"
+                loading={isSubmitting}
+                disabled={isSubmitting}
+              >
+                {isRegistering ? 'Create account' : 'Log in'}
+              </Button>
+            </form>
+
+            <div className="signin-divider">
+              <span>or</span>
+            </div>
+
+            <Button
+              block
+              className="provider-button provider-button--google"
+              onClick={signInWithGoogle}
+              disabled={isSubmitting}
+            >
+              <Icon icon="google" /> Continue with Google
+            </Button>
 
             <p className="signin-terms">
               By continuing, you agree to use Chatspace responsibly.

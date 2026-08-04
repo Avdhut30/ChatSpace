@@ -2,7 +2,7 @@ import React from 'react';
 import TimeAgo from 'timeago-react';
 import ProfileAvatar from '../ProfileAvatar';
 
-const RoomItem = ({ room }) => {
+const RoomItem = ({ room, hasUnread }) => {
   const { createdAt, name, lastMessage } = room;
 
   return (
@@ -11,6 +11,9 @@ const RoomItem = ({ room }) => {
       <div className="room-item__content">
         <div className="room-item__header">
           <strong className="text-disappear">{name}</strong>
+          {hasUnread && (
+            <span className="room-unread-dot" title="New messages" />
+          )}
           <TimeAgo
             datetime={
               lastMessage

@@ -1,89 +1,75 @@
-import React, { useState } from 'react';
-import { Tag, Icon, Button, Alert } from 'rsuite';
-import firebase from 'firebase/compat/app';
-import { auth } from '../../misc/firebase';
+import React from 'react';
+import { Alert, Button, Icon, Tag } from 'rsuite';
+import { useProfile } from '../../context/profile.context';
+import { supabase } from '../../misc/supabase';
+
+const PROVIDERS = {
+  google: { color: 'green', icon: 'google', label: 'Google' },
+};
 
 const ProviderBlock = () => {
-  const [isConnected, setIsConnected] = useState({
-    'google.com': auth.currentUser.providerData.some(
-      data => data.providerId === 'google.com'
-    ),
-    'facebook.com': auth.currentUser.providerData.some(
-      data => data.providerId === 'facebook.com'
-    ),
-  });
+  const { profile } = useProfile();
+  const connectedProviders = profile.providers || [];
 
-  const updateIsConnected = (providerId, value) => {
-    setIsConnected(p => {
-      return {
-        ...p,
-        [providerId]: value,
-      };
-    });
+  const connect = async provider => {
+    const { error } = await supabase.auth.linkIdentity({ provider });
+    if (error) Alert.error(error.message, 4000);
   };
 
-  const unlink = async providerId => {
-    try {
-      if (auth.currentUser.providerData.length === 1) {
-        throw new Error(`You can not disconnect from ${providerId}`);
-      }
-
-      await auth.currentUser.unlink(providerId);
-
-      updateIsConnected(providerId, false);
-      Alert.info(`Disconnected from ${providerId}`, 4000);
-    } catch (err) {
-      Alert.error(err.message, 4000);
+  const disconnect = async provider => {
+    if (profile.identities.length <= 1) {
+      Alert.error('At least one sign-in method must stay connected', 4000);
+      return;
     }
-  };
 
-  const unlinkFacebook = () => {
-    unlink('facebook.com');
-  };
-  const unlinkGoogle = () => {
-    unlink('google.com');
-  };
+    const identity = profile.identities.find(
+      item => item.provider === provider
+    );
+    if (!identity) return;
 
-  const link = async provider => {
-    try {
-      await auth.currentUser.linkWithPopup(provider);
-      Alert.info(`Link to ${provider.providerId}`, 4000);
-
-      updateIsConnected(provider.providerId, true);
-    } catch (err) {
-      Alert.error(err.message, 4000);
+    const { error } = await supabase.auth.unlinkIdentity(identity);
+    if (error) {
+      Alert.error(error.message, 4000);
+    } else {
+      Alert.info(`${PROVIDERS[provider].label} disconnected`, 4000);
     }
-  };
-  const linkFacebook = () => {
-    link(new firebase.auth.FacebookAuthProvider());
-  };
-  const linkGoogle = () => {
-    link(new firebase.auth.GoogleAuthProvider());
   };
 
   return (
     <div className="provider-settings">
-      {isConnected['google.com'] && (
-        <Tag color="green" closable onClose={unlinkGoogle}>
-          <Icon icon="google" /> Connected
-        </Tag>
-      )}
-      {isConnected['facebook.com'] && (
-        <Tag color="blue" closable onClose={unlinkFacebook}>
-          <Icon icon="facebook" /> Connected
+      {connectedProviders.includes('email') && (
+        <Tag color="blue">
+          <Icon icon="envelope" /> Email & password connected
         </Tag>
       )}
 
+      {Object.entries(PROVIDERS).map(([provider, details]) => {
+        const isConnected = connectedProviders.includes(provider);
+
+        return isConnected ? (
+          <Tag
+            key={provider}
+            color={details.color}
+            closable
+            onClose={() => disconnect(provider)}
+          >
+            <Icon icon={details.icon} /> {details.label} connected
+          </Tag>
+        ) : null;
+      })}
+
       <div className="provider-settings__actions">
-        {!isConnected['google.com'] && (
-          <Button block color="green" onClick={linkGoogle}>
-            <Icon icon="google" /> Connect Google
-          </Button>
-        )}
-        {!isConnected['facebook.com'] && (
-          <Button block color="blue" onClick={linkFacebook}>
-            <Icon icon="facebook" /> Connect Facebook
-          </Button>
+        {Object.entries(PROVIDERS).map(([provider, details]) =>
+          connectedProviders.includes(provider) ? null : (
+            <Button
+              key={provider}
+              block
+              color={details.color}
+              onClick={() => connect(provider)}
+            >
+              <Icon icon={details.icon} /> Connect {details.label}
+            </Button>
+          )
         )}
       </div>
     </div>

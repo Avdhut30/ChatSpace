@@ -2,23 +2,21 @@ import React from 'react';
 import { Drawer, Button, Divider, Alert } from 'rsuite';
 import { useProfile } from '../../context/profile.context';
 import EditableInput from '../EditableInput';
-import ProfileAvatar from '../ProfileAvatar';
-import { database } from '../../misc/firebase';
+import { supabase } from '../../misc/supabase';
+import AvatarUpload from './AvatarUpload';
 import ProviderBlock from './ProviderBlock';
-import { getUserUpdates } from '../../misc/helpers';
 
 const Dashboard = ({ onSignOut }) => {
   const { profile } = useProfile();
 
   const onSave = async newData => {
     try {
-      const updates = await getUserUpdates(
-        profile.uid,
-        'name',
-        newData,
-        database
-      );
-      await database.ref().update(updates);
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: newData })
+        .eq('id', profile.uid);
+
+      if (error) throw error;
 
       Alert.success('Nickname has been updated', 4000);
     } catch (err) {
@@ -49,17 +47,7 @@ const Dashboard = ({ onSignOut }) => {
           onSave={onSave}
           label={<h6 className="mb-2">Display name</h6>}
         />
-        <div className="avatar-settings text-center">
-          <h6>Profile photo</h6>
-          <ProfileAvatar
-            src={profile.avatar}
-            name={profile.name}
-            className="avatar-settings__preview img-fullsize"
-          />
-          <p className="avatar-settings__hint">
-            Your photo is synced from your connected Google or Facebook account.
-          </p>
-        </div>
+        <AvatarUpload />
       </Drawer.Body>
       <Drawer.Footer>
         <Button block className="signout-button" onClick={onSignOut}>

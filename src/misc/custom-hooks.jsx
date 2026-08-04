@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { database } from './firebase';
+import { useProfile } from '../context/profile.context';
+import { supabase } from './supabase';
 
 export function useModalState(defaultValue = false) {
   const [isOpen, setIsOpen] = useState(defaultValue);
@@ -28,25 +29,8 @@ export const useMediaQuery = query => {
 };
 
 export function usePresence(uid) {
-  const [presence, setPresence] = useState(null);
-
-  useEffect(() => {
-    const userStatusRef = database.ref(`/status/${uid}`);
-
-    userStatusRef.on('value', snap => {
-      if (snap.exists()) {
-        const data = snap.val();
-
-        setPresence(data);
-      }
-    });
-
-    return () => {
-      userStatusRef.off();
-    };
-  }, [uid]);
-
-  return presence;
+  const { presence } = useProfile();
+  return presence[uid] || { state: 'offline' };
 }
 
 export function useHover() {
@@ -69,4 +53,63 @@ export function useHover() {
     };
   }, []);
   return [ref, value];
+}
+
+export function useRoomTyping(chatId) {
+  const { profile } = useProfile();
+  const [typingUsers, setTypingUsers] = useState([]);
+  const channelRef = useRef(null);
+  const timeoutsRef = useRef({});
+
+  useEffect(() => {
+    const clearUser = uid => {
+      window.clearTimeout(timeoutsRef.current[uid]);
+      delete timeoutsRef.current[uid];
+      setTypingUsers(users => users.filter(user => user.uid !== uid));
+    };
+
+    const channel = supabase
+      .channel(`typing:${chatId}`)
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!payload || payload.uid === profile.uid) return;
+
+        if (!payload.isTyping) {
+          clearUser(payload.uid);
+          return;
+        }
+
+        setTypingUsers(users => [
+          ...users.filter(user => user.uid !== payload.uid),
+          { uid: payload.uid, name: payload.name },
+        ]);
+        window.clearTimeout(timeoutsRef.current[payload.uid]);
+        timeoutsRef.current[payload.uid] = window.setTimeout(
+          () => clearUser(payload.uid),
+          1800
+        );
+      })
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      Object.values(timeoutsRef.current).forEach(window.clearTimeout);
+      timeoutsRef.current = {};
+      channelRef.current = null;
+      supabase.removeChannel(channel);
+    };
+  }, [chatId, profile.uid]);
+
+  const sendTyping = useCallback(
+    isTyping => {
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { uid: profile.uid, name: profile.name, isTyping },
+      });
+    },
+    [profile.name, profile.uid]
+  );
+
+  return { sendTyping, typingUsers };
 }
