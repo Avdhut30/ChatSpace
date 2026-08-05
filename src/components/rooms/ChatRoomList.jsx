@@ -50,6 +50,35 @@ const ChatRoomList = () => {
     });
   }, [rooms, search]);
 
+  const personalRooms = filteredRooms.filter(room => room.type === 'personal');
+  const directRooms = filteredRooms.filter(room => room.type === 'direct');
+  const groupRooms = filteredRooms.filter(room => room.type !== 'personal');
+  const sharedGroupRooms = groupRooms.filter(room => room.type !== 'direct');
+
+  const renderRoom = room => (
+    <Nav.Item
+      componentClass={Link}
+      to={`/chat/${room.id}`}
+      key={room.id}
+      eventKey={`/chat/${room.id}`}
+    >
+      <RoomItem
+        room={room}
+        hasUnread={
+          Boolean(room.lastMessage) &&
+          location.pathname !== `/chat/${room.id}` &&
+          new Date(room.lastMessage.createdAt).getTime() >
+            new Date(
+              window.localStorage.getItem(
+                `chatspace:last-seen:${room.id}`
+              ) || 0
+            ).getTime() &&
+          seenVersion >= 0
+        }
+      />
+    </Nav.Item>
+  );
+
   return (
     <>
       <InputGroup className="room-search">
@@ -84,8 +113,8 @@ const ChatRoomList = () => {
         )}
         {rooms && rooms.length === 0 && (
           <div className="room-list-empty">
-            <p>No rooms yet</p>
-            <span>Create one to start a conversation.</span>
+            <p>Your chat list is empty</p>
+            <span>Start a direct message or create a group.</span>
           </div>
         )}
         {rooms && rooms.length > 0 && filteredRooms.length === 0 && (
@@ -94,29 +123,24 @@ const ChatRoomList = () => {
             <span>Try a different room or message name.</span>
           </div>
         )}
-        {filteredRooms.map(room => (
-          <Nav.Item
-            componentClass={Link}
-            to={`/chat/${room.id}`}
-            key={room.id}
-            eventKey={`/chat/${room.id}`}
-          >
-            <RoomItem
-              room={room}
-              hasUnread={
-                Boolean(room.lastMessage) &&
-                location.pathname !== `/chat/${room.id}` &&
-                new Date(room.lastMessage.createdAt).getTime() >
-                  new Date(
-                    window.localStorage.getItem(
-                      `chatspace:last-seen:${room.id}`
-                    ) || 0
-                  ).getTime() &&
-                seenVersion >= 0
-              }
-            />
-          </Nav.Item>
-        ))}
+        {personalRooms.length > 0 && (
+          <div className="room-list-section-label">
+            <Icon icon="lock" /> Personal
+          </div>
+        )}
+        {personalRooms.map(renderRoom)}
+        {directRooms.length > 0 && (
+          <div className="room-list-section-label">
+            <Icon icon="comments-o" /> Direct messages
+          </div>
+        )}
+        {directRooms.map(renderRoom)}
+        {sharedGroupRooms.length > 0 && (
+          <div className="room-list-section-label">
+            <Icon icon="group" /> Group chats
+          </div>
+        )}
+        {sharedGroupRooms.map(renderRoom)}
       </Nav>
     </>
   );

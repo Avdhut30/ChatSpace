@@ -26,6 +26,9 @@ function toProfile(user, savedProfile) {
       metadata.avatar_url ||
       metadata.picture ||
       null,
+    username: savedProfile?.username || metadata.username || '',
+    phoneNumber:
+      savedProfile?.phone_number || metadata.phone_number || user.phone || '',
     createdAt: savedProfile?.created_at || user.created_at,
     providers: user.app_metadata?.providers || [],
     identities: user.identities || [],
@@ -71,15 +74,24 @@ export const ProfileProvider = ({ children }) => {
       }
 
       const user = session.user;
-      const { data: savedProfile } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, created_at')
-        .eq('id', user.id)
-        .maybeSingle();
+      const [{ data: savedProfile }, identityResult] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, name, avatar_url, created_at')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase.rpc('get_profile_identity', {
+          check_profile_id: user.id,
+        }),
+      ]);
+
+      const savedIdentity = Array.isArray(identityResult.data)
+        ? identityResult.data[0]
+        : identityResult.data;
 
       if (!isActive) return;
 
-      setProfile(toProfile(user, savedProfile));
+      setProfile(toProfile(user, { ...savedProfile, ...savedIdentity }));
       setIsLoading(false);
 
       profileChannel = supabase
@@ -97,6 +109,8 @@ export const ProfileProvider = ({ children }) => {
               ...current,
               name: payload.new.name,
               avatar: payload.new.avatar_url || current.avatar,
+              username: payload.new.username || current.username,
+              phoneNumber: payload.new.phone_number ?? current.phoneNumber,
             }));
           }
         )

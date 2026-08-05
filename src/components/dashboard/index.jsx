@@ -5,9 +5,10 @@ import EditableInput from '../EditableInput';
 import { supabase } from '../../misc/supabase';
 import AvatarUpload from './AvatarUpload';
 import ProviderBlock from './ProviderBlock';
+import IdentitySettings from './IdentitySettings';
 
 const Dashboard = ({ onSignOut }) => {
-  const { profile } = useProfile();
+  const { profile, updateProfile } = useProfile();
 
   const onSave = async newData => {
     try {
@@ -18,6 +19,7 @@ const Dashboard = ({ onSignOut }) => {
 
       if (error) throw error;
 
+      updateProfile({ name: newData });
       Alert.success('Nickname has been updated', 4000);
     } catch (err) {
       Alert.error(err.message, 4000);
@@ -47,6 +49,7 @@ const Dashboard = ({ onSignOut }) => {
           onSave={onSave}
           label={<h6 className="mb-2">Display name</h6>}
         />
+        <IdentitySettings />
         <AvatarUpload />
       </Drawer.Body>
       <Drawer.Footer>

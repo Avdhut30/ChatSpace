@@ -7,7 +7,7 @@ import {
   subscribeToMessageUpdates,
 } from '../../../misc/chat-events';
 import { groupBy } from '../../../misc/helpers';
-import { supabase } from '../../../misc/supabase';
+import { isAdvancedMessageSchemaError, supabase } from '../../../misc/supabase';
 import MessageItem from './MessageItem';
 
 const PAGE_SIZE = 15;
@@ -34,7 +34,12 @@ function formatMessageDate(dateValue) {
   });
 }
 
-const Messages = ({ searchQuery = '' }) => {
+const Messages = ({
+  searchQuery = '',
+  onReply,
+  hasAdvancedMessages = true,
+  onAdvancedMessagesUnavailable,
+}) => {
   const { chatId } = useParams();
   const { profile } = useProfile();
   const [messages, setMessages] = useState(null);
@@ -66,14 +71,29 @@ const Messages = ({ searchQuery = '' }) => {
     async (limitToLast = limitRef.current, showErrors = true) => {
       const node = selfRef.current;
       const wasNearBottom = shouldScrollToBottom(node);
-      const { data: rows, error } = await supabase
+      const messageColumns = hasAdvancedMessages
+        ? 'id, room_id, author_id, text, created_at, edited_at, reply_to, file_path, file_name, file_type, file_size'
+        : 'id, room_id, author_id, text, created_at, file_path, file_name, file_type, file_size';
+      let { data: rows, error } = await supabase
         .from('messages')
-        .select(
-          'id, room_id, author_id, text, created_at, file_path, file_name, file_type, file_size'
-        )
+        .select(messageColumns)
         .eq('room_id', chatId)
         .order('created_at', { ascending: false })
         .limit(limitToLast);
+
+      if (hasAdvancedMessages && isAdvancedMessageSchemaError(error)) {
+        onAdvancedMessagesUnavailable();
+        const legacyResult = await supabase
+          .from('messages')
+          .select(
+            'id, room_id, author_id, text, created_at, file_path, file_name, file_type, file_size'
+          )
+          .eq('room_id', chatId)
+          .order('created_at', { ascending: false })
+          .limit(limitToLast);
+        rows = legacyResult.data;
+        error = legacyResult.error;
+      }
 
       if (error) {
         if (showErrors) {
@@ -83,6 +103,7 @@ const Messages = ({ searchQuery = '' }) => {
         return;
       }
 
+      rows = rows || [];
       const authorIds = [...new Set(rows.map(message => message.author_id))];
       const messageIds = rows.map(message => message.id);
       const filePaths = rows
@@ -93,7 +114,7 @@ const Messages = ({ searchQuery = '' }) => {
           authorIds.length
             ? supabase
                 .from('profiles')
-                .select('id, name, avatar_url, created_at')
+                .select('id, name, avatar_url, username, created_at')
                 .in('id', authorIds)
             : Promise.resolve({ data: [] }),
           messageIds.length
@@ -133,18 +154,38 @@ const Messages = ({ searchQuery = '' }) => {
           if (pendingLikeState === true) likesByUser[profile.uid] = true;
           if (pendingLikeState === false) delete likesByUser[profile.uid];
 
+          const repliedMessage = rows.find(
+            item => String(item.id) === String(message.reply_to)
+          );
+          const repliedAuthor = repliedMessage
+            ? authorMap[repliedMessage.author_id] || {}
+            : null;
+
           return {
             id: message.id,
             text: message.text,
             createdAt: message.created_at,
+            editedAt: message.edited_at,
             author: {
               uid: message.author_id,
               name: author.name || 'Chat member',
               avatar: author.avatar_url || null,
+              username: author.username || '',
               createdAt: author.created_at,
             },
             likes: likesByUser,
             likeCount: Object.keys(likesByUser).length,
+            replyTo: message.reply_to
+              ? {
+                  id: message.reply_to,
+                  text: repliedMessage?.text || '',
+                  fileName: repliedMessage?.file_name || '',
+                  authorName: repliedMessage
+                    ? repliedAuthor?.name || 'Chat member'
+                    : 'Original message',
+                  unavailable: !repliedMessage,
+                }
+              : null,
             file: message.file_path
               ? {
                   path: message.file_path,
@@ -176,7 +217,7 @@ const Messages = ({ searchQuery = '' }) => {
         }
       }, 0);
     },
-    [chatId, profile.uid]
+    [chatId, hasAdvancedMessages, onAdvancedMessagesUnavailable, profile.uid]
   );
 
   const onLoadMore = useCallback(async () => {
@@ -423,6 +464,46 @@ const Messages = ({ searchQuery = '' }) => {
     [messages]
   );
 
+  const handleEdit = useCallback(
+    async (msgId, nextText) => {
+      const message = messages.find(item => item.id === msgId);
+      const text = nextText.trim();
+      if (!message || !text || text === message.text) return false;
+
+      const editedAt = new Date().toISOString();
+      setMessages(current =>
+        current.map(item =>
+          item.id === msgId ? { ...item, text, editedAt } : item
+        )
+      );
+
+      const { error } = await supabase
+        .from('messages')
+        .update({ text, edited_at: editedAt })
+        .eq('id', msgId)
+        .eq('author_id', profile.uid);
+
+      if (error) {
+        if (isAdvancedMessageSchemaError(error)) {
+          onAdvancedMessagesUnavailable();
+          setMessages(current =>
+            current.map(item => (item.id === msgId ? message : item))
+          );
+          return false;
+        }
+        setMessages(current =>
+          current.map(item => (item.id === msgId ? message : item))
+        );
+        Alert.error(error.message, 4000);
+        return false;
+      }
+
+      requestRoomsRefresh();
+      return true;
+    },
+    [messages, onAdvancedMessagesUnavailable, profile.uid]
+  );
+
   const handleScroll = () => {
     const node = selfRef.current;
     if (!node) return;
@@ -459,6 +540,9 @@ const Messages = ({ searchQuery = '' }) => {
           handleAdmin={handleAdmin}
           handleLike={handleLike}
           handleDelete={handleDelete}
+          handleEdit={handleEdit}
+          onReply={onReply}
+          hasAdvancedMessages={hasAdvancedMessages}
         />
       )),
     ]);

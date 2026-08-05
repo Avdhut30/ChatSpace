@@ -31,8 +31,10 @@ const Home = () => {
               <main className="app-content app-empty-state">
                 <div className="empty-state-card">
                   <span className="empty-state-icon">✦</span>
-                  <h2>Select a conversation</h2>
-                  <p>Choose a room from the sidebar to start chatting.</p>
+                  <h2>Your private conversations</h2>
+                  <p>
+                    Choose one of your chats or start a new conversation.
+                  </p>
                 </div>
               </main>
             )}
