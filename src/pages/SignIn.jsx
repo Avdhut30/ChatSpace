@@ -1,10 +1,18 @@
 import React, { useState } from 'react';
 import { Alert, Button, Icon } from 'rsuite';
 import { supabase } from '../misc/supabase';
+import {
+  isValidPhoneNumber,
+  isValidUsername,
+  normalizePhoneNumber,
+  normalizeUsername,
+} from '../misc/identity';
 
 const SignIn = () => {
   const [mode, setMode] = useState('login');
   const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -75,6 +83,8 @@ const SignIn = () => {
 
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedName = displayName.trim();
+    const normalizedUsername = normalizeUsername(username);
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
 
     if (!normalizedEmail || !password) {
       Alert.error('Enter your email and password', 4000);
@@ -83,6 +93,22 @@ const SignIn = () => {
 
     if (isRegistering && normalizedName.length < 2) {
       Alert.error('Enter a display name with at least 2 characters', 4000);
+      return;
+    }
+
+    if (isRegistering && !isValidUsername(normalizedUsername)) {
+      Alert.error(
+        'Username must be 3-24 characters using letters, numbers, or underscores.',
+        5000
+      );
+      return;
+    }
+
+    if (isRegistering && !isValidPhoneNumber(normalizedPhoneNumber)) {
+      Alert.error(
+        'Use an international mobile number such as +919876543210.',
+        5000
+      );
       return;
     }
 
@@ -100,11 +126,22 @@ const SignIn = () => {
 
     try {
       if (isRegistering) {
+        const availability = await supabase.rpc('is_username_available', {
+          candidate: normalizedUsername,
+        });
+        if (!availability.error && !availability.data) {
+          throw new Error('That username is already taken');
+        }
+
         const { data, error } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
           options: {
-            data: { full_name: normalizedName },
+            data: {
+              full_name: normalizedName,
+              username: normalizedUsername,
+              phone_number: normalizedPhoneNumber,
+            },
             emailRedirectTo: authCallbackUrl,
           },
         });
@@ -207,20 +244,49 @@ const SignIn = () => {
 
             <form className="email-auth-form" onSubmit={handleEmailAuth}>
               {isRegistering && (
-                <label>
-                  <span>Display name</span>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={event => setDisplayName(event.target.value)}
-                    placeholder="Your name"
-                    autoComplete="name"
-                    minLength="2"
-                    maxLength="50"
-                    disabled={isSubmitting}
-                    required
-                  />
-                </label>
+                <>
+                  <label>
+                    <span>Display name</span>
+                    <input
+                      type="text"
+                      value={displayName}
+                      onChange={event => setDisplayName(event.target.value)}
+                      placeholder="Your name"
+                      autoComplete="name"
+                      minLength="2"
+                      maxLength="50"
+                      disabled={isSubmitting}
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>Username</span>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={event => setUsername(event.target.value)}
+                      placeholder="your_username"
+                      autoComplete="username"
+                      minLength="3"
+                      maxLength="25"
+                      disabled={isSubmitting}
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>Mobile number</span>
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={event => setPhoneNumber(event.target.value)}
+                      placeholder="+919876543210"
+                      autoComplete="tel"
+                      maxLength="22"
+                      disabled={isSubmitting}
+                      required
+                    />
+                  </label>
+                </>
               )}
 
               <label>

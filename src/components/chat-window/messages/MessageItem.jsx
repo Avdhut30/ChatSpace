@@ -1,5 +1,5 @@
-import React, { memo } from 'react';
-import { Alert, Button } from 'rsuite';
+import React, { memo, useState } from 'react';
+import { Alert, Button, Input } from 'rsuite';
 import TimeAgo from 'timeago-react';
 import { useCurrentRoom } from '../../../context/current-room.context';
 import { useProfile } from '../../../context/profile.context';
@@ -50,7 +50,15 @@ const renderFileMessage = file => {
   );
 };
 
-const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
+const MessageItem = ({
+  message,
+  handleAdmin,
+  handleLike,
+  handleDelete,
+  handleEdit,
+  onReply,
+  hasAdvancedMessages,
+}) => {
   const {
     author,
     createdAt,
@@ -61,7 +69,12 @@ const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
     isPending,
     isDeleting,
     isReacting,
+    editedAt,
+    replyTo,
   } = message;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(text || '');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const [selfHover, isHovered] = useHover();
   const isMobile = useMediaQuery('(max-width:992px)');
@@ -69,10 +82,11 @@ const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
 
   const isAdmin = useCurrentRoom(v => v.isAdmin);
   const admins = useCurrentRoom(v => v.admins);
+  const roomType = useCurrentRoom(v => v.roomType);
 
   const isMsgAuthorAdmin = admins.includes(author.uid);
   const isAuthor = profile.uid === author.uid;
-  const canGrantAdmin = isAdmin && !isAuthor;
+  const canGrantAdmin = roomType === 'group' && isAdmin && !isAuthor;
 
   const canShowIcons = isMobile || isHovered;
 
@@ -89,8 +103,22 @@ const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
     }
   };
 
+  const saveEdit = async () => {
+    const nextText = editText.trim();
+    if (!nextText || nextText.length > 1000) return;
+    if (nextText === text) {
+      setIsEditing(false);
+      return;
+    }
+    setIsSavingEdit(true);
+    const saved = await handleEdit(message.id, nextText);
+    setIsSavingEdit(false);
+    if (saved) setIsEditing(false);
+  };
+
   return (
     <li
+      id={`message-${message.id}`}
       className={`message-row ${isAuthor ? 'message-row--self' : ''} ${isDeleting ? 'message-row--deleting' : ''}`}
       ref={selfHover}
     >
@@ -123,12 +151,68 @@ const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
           {isPending ? (
             <span className="message-time message-pending">Sending…</span>
           ) : (
-            <TimeAgo datetime={createdAt} className="message-time" />
+            <span className="message-time">
+              <TimeAgo datetime={createdAt} />
+              {editedAt && ' · edited'}
+              {isAuthor && (
+                <span
+                  className="message-sent-check"
+                  title="Sent to Chatspace"
+                  aria-label="Sent"
+                >
+                  ✓
+                </span>
+              )}
+            </span>
           )}
         </div>
 
         <div className="message-bubble">
-          {text && <span className="word-break-all">{text}</span>}
+          {replyTo && (
+            <button
+              type="button"
+              className="message-reply-preview"
+              onClick={() =>
+                document
+                  .getElementById(`message-${replyTo.id}`)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }
+            >
+              <strong>{replyTo.authorName}</strong>
+              <span>
+                {replyTo.unavailable
+                  ? 'Earlier message'
+                  : replyTo.text || replyTo.fileName || 'Attachment'}
+              </span>
+            </button>
+          )}
+          {isEditing ? (
+            <div className="message-edit-form">
+              <Input
+                value={editText}
+                onChange={value => setEditText(value.slice(0, 1000))}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') saveEdit();
+                  if (event.key === 'Escape') setIsEditing(false);
+                }}
+                autoFocus
+              />
+              <span>
+                <button type="button" onClick={() => setIsEditing(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={isSavingEdit || !editText.trim()}
+                >
+                  Save
+                </button>
+              </span>
+            </div>
+          ) : (
+            text && <span className="word-break-all">{text}</span>
+          )}
           {file && renderFileMessage(file)}
         </div>
 
@@ -136,6 +220,14 @@ const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
           <div
             className={`message-actions ${canShowIcons ? 'is-visible' : ''}`}
           >
+            {hasAdvancedMessages && (
+              <IconBtnControl
+                isVisible={canShowIcons}
+                iconName="reply"
+                tooltip="Reply to message"
+                onClick={() => onReply(message)}
+              />
+            )}
             {text && (
               <IconBtnControl
                 isVisible={canShowIcons}
@@ -157,14 +249,28 @@ const MessageItem = ({ message, handleAdmin, handleLike, handleDelete }) => {
               aria-pressed={Boolean(isLiked)}
             />
             {isAuthor && (
-              <IconBtnControl
-                isVisible={canShowIcons}
-                iconName="close"
-                tooltip="Delete this message"
-                onClick={() => handleDelete(message.id)}
-                disabled={isDeleting}
-                aria-label="Delete message"
-              />
+              <>
+                {hasAdvancedMessages && text && (
+                  <IconBtnControl
+                    isVisible={canShowIcons}
+                    iconName="edit2"
+                    tooltip="Edit message"
+                    onClick={() => {
+                      setEditText(text);
+                      setIsEditing(true);
+                    }}
+                    aria-label="Edit message"
+                  />
+                )}
+                <IconBtnControl
+                  isVisible={canShowIcons}
+                  iconName="close"
+                  tooltip="Delete this message"
+                  onClick={() => handleDelete(message.id)}
+                  disabled={isDeleting}
+                  aria-label="Delete message"
+                />
+              </>
             )}
           </div>
         )}

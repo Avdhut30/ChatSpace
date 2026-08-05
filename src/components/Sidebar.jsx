@@ -1,9 +1,11 @@
 import React from 'react';
 import DashboardToggle from './dashboard/DashboardToggle';
 import CreateRoomBtnModal from './dashboard/CreateRoomBtnModal';
+import CreateDirectMessageModal from './dashboard/CreateDirectMessageModal';
 import ChatRoomList from './rooms/ChatRoomList';
 import ProfileAvatar from './ProfileAvatar';
 import { useProfile } from '../context/profile.context';
+import Stories from './stories/Stories';
 
 const Sidebar = () => {
   const { profile } = useProfile();
@@ -27,17 +29,25 @@ const Sidebar = () => {
         />
         <div className="sidebar-profile__copy">
           <strong>{profile.name}</strong>
+          {profile.username && (
+            <span className="sidebar-profile__username">
+              @{profile.username}
+            </span>
+          )}
           <span>
             <i className="online-dot" /> Available
           </span>
         </div>
       </div>
 
+      <Stories />
+
       <section className="sidebar-rooms">
         <div className="sidebar-section-title">
-          <span>Conversations</span>
-          <span className="sidebar-section-count">Live</span>
+          <span>Your chats</span>
+          <span className="sidebar-section-count">Private</span>
         </div>
+        <CreateDirectMessageModal />
         <CreateRoomBtnModal />
         <ChatRoomList />
       </section>

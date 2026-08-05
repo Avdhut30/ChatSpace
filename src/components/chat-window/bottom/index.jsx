@@ -6,11 +6,11 @@ import {
   publishMessageUpdate,
   requestRoomsRefresh,
 } from '../../../misc/chat-events';
-import { supabase } from '../../../misc/supabase';
+import { isAdvancedMessageSchemaError, supabase } from '../../../misc/supabase';
+import EmojiPicker from './EmojiPicker';
 
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '👋', '🙌'];
 const FILE_ACCEPT =
   'image/*,audio/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip';
 
@@ -32,7 +32,13 @@ function formatDuration(totalSeconds) {
   return `${minutes}:${seconds}`;
 }
 
-const Bottom = ({ onTyping }) => {
+const Bottom = ({
+  onTyping,
+  replyTo,
+  onCancelReply,
+  hasAdvancedMessages = true,
+  onAdvancedMessagesUnavailable,
+}) => {
   const { chatId } = useParams();
   const { profile } = useProfile();
   const draftKey = `chatspace:draft:${chatId}`;
@@ -66,11 +72,21 @@ const Bottom = ({ onTyping }) => {
       id: `pending-${profile.uid}-${Date.now()}`,
       text: data.text || '',
       file: data.file || null,
+      replyTo: data.replyTo
+        ? {
+            id: data.replyTo.id,
+            text: data.replyTo.text || '',
+            fileName: data.replyTo.file?.name || '',
+            authorName: data.replyTo.author?.name || 'Chat member',
+            unavailable: false,
+          }
+        : null,
       createdAt: new Date().toISOString(),
       author: {
         uid: profile.uid,
         name: profile.name,
         avatar: profile.avatar,
+        username: profile.username,
         createdAt: profile.createdAt,
       },
       likes: {},
@@ -85,6 +101,30 @@ const Bottom = ({ onTyping }) => {
     recordingStreamRef.current?.getTracks().forEach(track => track.stop());
     recordingStreamRef.current = null;
   }, []);
+
+  const insertMessageRecord = useCallback(
+    async record => {
+      let result = await supabase
+        .from('messages')
+        .insert(record)
+        .select('id, created_at')
+        .single();
+
+      if (hasAdvancedMessages && isAdvancedMessageSchemaError(result.error)) {
+        onAdvancedMessagesUnavailable();
+        const legacyRecord = { ...record };
+        delete legacyRecord.reply_to;
+        result = await supabase
+          .from('messages')
+          .insert(legacyRecord)
+          .select('id, created_at')
+          .single();
+      }
+
+      return result;
+    },
+    [hasAdvancedMessages, onAdvancedMessagesUnavailable]
+  );
 
   useEffect(
     () => () => {
@@ -119,7 +159,9 @@ const Bottom = ({ onTyping }) => {
       }
 
       const localUrl = URL.createObjectURL(file);
+      const activeReply = hasAdvancedMessages ? replyTo : null;
       const pendingMessage = createPendingMessage({
+        replyTo: activeReply,
         file: {
           url: localUrl,
           name: file.name,
@@ -162,19 +204,18 @@ const Bottom = ({ onTyping }) => {
         return;
       }
 
-      const { data, error: messageError } = await supabase
-        .from('messages')
-        .insert({
-          room_id: chatId,
-          author_id: profile.uid,
-          text: '',
-          file_path: filePath,
-          file_name: file.name,
-          file_type: file.type || 'application/octet-stream',
-          file_size: file.size,
-        })
-        .select('id, created_at')
-        .single();
+      const attachmentRecord = {
+        room_id: chatId,
+        author_id: profile.uid,
+        text: '',
+        file_path: filePath,
+        file_name: file.name,
+        file_type: file.type || 'application/octet-stream',
+        file_size: file.size,
+        ...(hasAdvancedMessages ? { reply_to: activeReply?.id || null } : {}),
+      };
+      const { data, error: messageError } =
+        await insertMessageRecord(attachmentRecord);
 
       if (messageError) {
         await supabase.storage.from('chat-files').remove([filePath]);
@@ -215,27 +256,39 @@ const Bottom = ({ onTyping }) => {
 
       if (signedFile?.signedUrl) URL.revokeObjectURL(localUrl);
       requestRoomsRefresh();
+      onCancelReply();
       setIsUploading(false);
     },
-    [chatId, createPendingMessage, profile.uid]
+    [
+      chatId,
+      createPendingMessage,
+      hasAdvancedMessages,
+      insertMessageRecord,
+      onCancelReply,
+      profile.uid,
+      replyTo,
+    ]
   );
 
   const onSendClick = async () => {
     const text = input.trim();
     if (!text || isSending || isUploading || isRecording) return;
 
-    const pendingMessage = createPendingMessage({ text });
+    const activeReply = hasAdvancedMessages ? replyTo : null;
+    const pendingMessage = createPendingMessage({ text, replyTo: activeReply });
     setIsSending(true);
     publishMessageUpdate({ type: 'add', chatId, message: pendingMessage });
     saveDraft('');
     setShowEmojis(false);
     onTyping(false);
 
-    const { data, error } = await supabase
-      .from('messages')
-      .insert({ room_id: chatId, author_id: profile.uid, text })
-      .select('id, created_at')
-      .single();
+    const messageRecord = {
+      room_id: chatId,
+      author_id: profile.uid,
+      text,
+      ...(hasAdvancedMessages ? { reply_to: activeReply?.id || null } : {}),
+    };
+    const { data, error } = await insertMessageRecord(messageRecord);
 
     if (error) {
       Alert.error(error.message, 4000);
@@ -258,6 +311,7 @@ const Bottom = ({ onTyping }) => {
         },
       });
       requestRoomsRefresh();
+      onCancelReply();
     }
     setIsSending(false);
   };
@@ -367,19 +421,28 @@ const Bottom = ({ onTyping }) => {
       />
 
       {showEmojis && (
-        <div className="emoji-picker" aria-label="Quick emoji picker">
-          {QUICK_EMOJIS.map(emoji => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() =>
-                saveDraft(`${input}${emoji}`.slice(0, MAX_MESSAGE_LENGTH))
-              }
-              aria-label={`Add ${emoji} emoji`}
-            >
-              {emoji}
-            </button>
-          ))}
+        <EmojiPicker
+          onSelect={emoji =>
+            onInputChange(`${input}${emoji}`.slice(0, MAX_MESSAGE_LENGTH))
+          }
+          onClose={() => setShowEmojis(false)}
+        />
+      )}
+
+      {hasAdvancedMessages && replyTo && (
+        <div className="composer-reply" role="status">
+          <span>
+            <strong>Replying to {replyTo.author.name}</strong>
+            <small>{replyTo.text || replyTo.file?.name || 'Attachment'}</small>
+          </span>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            aria-label="Cancel reply"
+            title="Cancel reply"
+          >
+            <Icon icon="close" />
+          </button>
         </div>
       )}
 

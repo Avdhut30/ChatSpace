@@ -1,13 +1,34 @@
 import React from 'react';
+import { Icon } from 'rsuite';
 import TimeAgo from 'timeago-react';
 import ProfileAvatar from '../ProfileAvatar';
+import PresenceDot from '../PresenceDot';
+import { useProfile } from '../../context/profile.context';
 
 const RoomItem = ({ room, hasUnread }) => {
-  const { createdAt, name, lastMessage } = room;
+  const { profile } = useProfile();
+  const { createdAt, name, lastMessage, type, memberCount } = room;
+  const isPersonal = type === 'personal';
+  const isDirect = type === 'direct';
 
   return (
     <div className="room-item">
-      <div className="room-item__avatar">{name.charAt(0).toUpperCase()}</div>
+      {isDirect && room.directPartner ? (
+        <div className="room-item__direct-avatar">
+          <ProfileAvatar
+            src={room.directPartner.avatar}
+            name={room.directPartner.name}
+            size="sm"
+          />
+          <PresenceDot uid={room.directPartner.uid} />
+        </div>
+      ) : (
+        <div className={`room-item__avatar ${isPersonal ? 'is-personal' : ''}`}>
+          <Icon
+            icon={isPersonal ? 'user' : isDirect ? 'commenting-o' : 'group'}
+          />
+        </div>
+      )}
       <div className="room-item__content">
         <div className="room-item__header">
           <strong className="text-disappear">{name}</strong>
@@ -27,20 +48,27 @@ const RoomItem = ({ room, hasUnread }) => {
         <div className="room-item__preview">
           {lastMessage ? (
             <>
-              <ProfileAvatar
-                src={lastMessage.author.avatar}
-                name={lastMessage.author.name}
-                size="xs"
-              />
               <span className="text-disappear">
-                {lastMessage.author.name}:{' '}
+                {lastMessage.author.uid === profile.uid && (
+                  <span className="room-preview-check">✓</span>
+                )}
+                {lastMessage.author.uid === profile.uid
+                  ? 'You'
+                  : lastMessage.author.name}
+                :{' '}
                 {lastMessage.text ||
                   (lastMessage.file && lastMessage.file.name) ||
                   'New activity'}
               </span>
             </>
           ) : (
-            <span>No messages yet</span>
+            <span>
+              {isPersonal
+                ? 'Private to you'
+                : isDirect
+                  ? 'Private conversation'
+                  : `${memberCount || 1} member${memberCount === 1 ? '' : 's'}`}
+            </span>
           )}
         </div>
       </div>

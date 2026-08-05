@@ -37,6 +37,7 @@ management in a clean interface designed for desktop and mobile.
 - Optimistic message sending, likes, and deletion
 - Typing indicators and unread conversation markers
 - Message and conversation search
+- Threaded replies and author-only message editing with edited labels
 - Date grouping, message pagination, and jump-to-latest navigation
 - Persistent per-room message drafts and quick emoji input
 
@@ -47,6 +48,13 @@ management in a clean interface designed for desktop and mobile.
 - In-browser voice-message recording and playback
 - Message reactions with live counts
 - Room creation, editing, membership, and administrator permissions
+- An automatically provisioned private personal space for every account
+- Invite-only group chats with member selection and member-only history
+- Unique one-to-one direct messages with private history and live presence
+- Instagram/WhatsApp-style text, photo, and video stories that expire after 24 hours
+- Server-enforced personal-room passwords with hashed storage and 30-minute unlocks
+- WhatsApp-style account isolation: users see only their own personal space, DMs, and invited groups
+- Unique `@username` discovery and private international-format mobile numbers
 
 ### Quality and security
 
@@ -117,6 +125,13 @@ Open the Supabase SQL Editor and apply these files in numerical order:
 supabase/migrations/202608050001_initial_chatspace.sql
 supabase/migrations/202608050002_file_messages.sql
 supabase/migrations/202608050003_profile_avatars.sql
+supabase/migrations/202608060001_message_replies_and_edits.sql
+supabase/migrations/202608060002_personal_and_group_rooms.sql
+supabase/migrations/202608060003_direct_messages.sql
+supabase/migrations/202608060004_stories.sql
+supabase/migrations/202608060005_personal_room_passwords.sql
+supabase/migrations/202608060006_whatsapp_workspace_isolation.sql
+supabase/migrations/202608060007_usernames_and_mobile_numbers.sql
 ```
 
 The migrations create the application tables, realtime publication entries,
