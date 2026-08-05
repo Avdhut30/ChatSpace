@@ -2392,6 +2392,16 @@ textarea {
   }
 }
 
+// RSuite 4 references this icon font from a third-party CDN. Self-host it so
+// production's Content Security Policy can remain strict and the icons render.
+@font-face {
+  font-family: 'rsuite-icon-font';
+  src: url('/fonts/rsuite-icon-font.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
 /* Telegram Neo: an original, airy interpretation of Telegram's chat UI. */
 body {
   background:
