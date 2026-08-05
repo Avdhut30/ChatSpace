@@ -523,6 +523,52 @@ textarea {
   font-size: 12px;
   line-height: 1.6;
   text-align: center;
+
+  > span {
+    display: flex;
+    margin-top: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+
+  a {
+    color: var(--blue-600);
+    font-weight: 700;
+  }
+}
+
+.signin-trust {
+  display: flex;
+  margin-top: 20px;
+  padding: 12px;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid var(--blue-100);
+  border-radius: 10px;
+  color: var(--blue-600);
+  background: var(--blue-50);
+
+  > .rs-icon {
+    margin-top: 2px;
+  }
+
+  p,
+  strong {
+    display: block;
+  }
+
+  p {
+    margin: 0;
+    color: var(--slate-500);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  strong {
+    margin-bottom: 2px;
+    color: var(--slate-700);
+  }
 }
 
 /* App shell and sidebar */

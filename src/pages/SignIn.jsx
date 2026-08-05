@@ -104,7 +104,11 @@ const SignIn = () => {
       return;
     }
 
-    if (isRegistering && !isValidPhoneNumber(normalizedPhoneNumber)) {
+    if (
+      isRegistering &&
+      normalizedPhoneNumber &&
+      !isValidPhoneNumber(normalizedPhoneNumber)
+    ) {
       Alert.error(
         'Use an international mobile number such as +919876543210.',
         5000
@@ -140,7 +144,7 @@ const SignIn = () => {
             data: {
               full_name: normalizedName,
               username: normalizedUsername,
-              phone_number: normalizedPhoneNumber,
+              phone_number: normalizedPhoneNumber || null,
             },
             emailRedirectTo: authCallbackUrl,
           },
@@ -274,7 +278,7 @@ const SignIn = () => {
                     />
                   </label>
                   <label>
-                    <span>Mobile number</span>
+                    <span>Mobile number (optional)</span>
                     <input
                       type="tel"
                       value={phoneNumber}
@@ -283,7 +287,6 @@ const SignIn = () => {
                       autoComplete="tel"
                       maxLength="22"
                       disabled={isSubmitting}
-                      required
                     />
                   </label>
                 </>
@@ -361,8 +364,30 @@ const SignIn = () => {
               <Icon icon="google" /> Continue with Google
             </Button>
 
+            <div className="signin-trust" role="note">
+              <Icon icon="shield" />
+              <p>
+                <strong>Your account belongs to Chatspace.</strong>
+                Passwords are handled securely by Supabase Auth. We never ask
+                for payment details, software downloads, or browser access.
+              </p>
+            </div>
+
             <p className="signin-terms">
-              By continuing, you agree to use Chatspace responsibly.
+              Chatspace is an independent open-source project and is not
+              affiliated with Telegram, WhatsApp, or Google.
+              <span>
+                <a href="/about.html">About</a>
+                <a href="/privacy.html">Privacy</a>
+                <a href="/terms.html">Terms</a>
+                <a
+                  href="https://github.com/Avdhut30/ChatSpace"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Source code
+                </a>
+              </span>
             </p>
           </div>
         </section>
