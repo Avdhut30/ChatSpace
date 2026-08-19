@@ -14,8 +14,10 @@ const Sidebar = () => {
     <div className="sidebar-inner">
       <header className="sidebar-header">
         <div className="brand-lockup">
-          <span className="brand-mark">C</span>
-          <span>Chatspace</span>
+          <span className="brand-mark">
+            <span aria-hidden="true">●</span>
+          </span>
+          <span>ChatSpace</span>
         </div>
         <DashboardToggle />
       </header>
@@ -28,6 +30,7 @@ const Sidebar = () => {
           className="sidebar-profile__avatar"
         />
         <div className="sidebar-profile__copy">
+          <small>Good to see you</small>
           <strong>{profile.name}</strong>
           {profile.username && (
             <span className="sidebar-profile__username">
@@ -44,11 +47,13 @@ const Sidebar = () => {
 
       <section className="sidebar-rooms">
         <div className="sidebar-section-title">
-          <span>Your chats</span>
-          <span className="sidebar-section-count">Private</span>
+          <span>Conversations</span>
+          <span className="sidebar-section-count">Private & secure</span>
         </div>
-        <CreateDirectMessageModal />
-        <CreateRoomBtnModal />
+        <div className="sidebar-create-actions">
+          <CreateDirectMessageModal />
+          <CreateRoomBtnModal />
+        </div>
         <ChatRoomList />
       </section>
     </div>

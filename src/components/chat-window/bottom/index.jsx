@@ -12,7 +12,7 @@ import EmojiPicker from './EmojiPicker';
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const FILE_ACCEPT =
-  'image/*,audio/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip';
+  'image/*,video/*,audio/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip';
 
 function getRecordingMimeType() {
   if (window.MediaRecorder?.isTypeSupported('audio/webm;codecs=opus')) {

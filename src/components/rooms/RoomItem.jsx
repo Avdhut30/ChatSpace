@@ -35,6 +35,9 @@ const RoomItem = ({ room, hasUnread }) => {
           {hasUnread && (
             <span className="room-unread-dot" title="New messages" />
           )}
+          <span className={`room-item__type room-item__type--${type}`}>
+            {isPersonal ? 'Personal' : isDirect ? 'Direct' : 'Group'}
+          </span>
           <TimeAgo
             datetime={
               lastMessage

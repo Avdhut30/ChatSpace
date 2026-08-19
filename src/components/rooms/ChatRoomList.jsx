@@ -3,11 +3,14 @@ import { Link, useLocation } from 'react-router-dom';
 import { Icon, Input, InputGroup, Loader, Nav } from 'rsuite';
 import RoomItem from './RoomItem';
 import { useRooms } from '../../context/rooms.context';
+import { requestRoomsRefresh } from '../../misc/chat-events';
 
 const ChatRoomList = () => {
   const rooms = useRooms();
   const location = useLocation();
   const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [seenVersion, setSeenVersion] = useState(0);
   const searchRef = useRef();
 
@@ -32,9 +35,13 @@ const ChatRoomList = () => {
     if (!rooms) return [];
 
     const query = search.trim().toLowerCase();
-    if (!query) return rooms;
-
     return rooms.filter(room => {
+      const matchesFilter =
+        activeFilter === 'all' ||
+        (activeFilter === 'direct' && room.type === 'direct') ||
+        (activeFilter === 'group' && room.type === 'group');
+      if (!matchesFilter) return false;
+      if (!query) return true;
       const lastMessage = room.lastMessage;
       const searchableText = [
         room.name,
@@ -48,7 +55,14 @@ const ChatRoomList = () => {
 
       return searchableText.includes(query);
     });
-  }, [rooms, search]);
+  }, [activeFilter, rooms, search]);
+
+  const refreshRooms = () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    requestRoomsRefresh();
+    window.setTimeout(() => setIsRefreshing(false), 700);
+  };
 
   const personalRooms = filteredRooms.filter(room => room.type === 'personal');
   const directRooms = filteredRooms.filter(room => room.type === 'direct');
@@ -69,9 +83,7 @@ const ChatRoomList = () => {
           location.pathname !== `/chat/${room.id}` &&
           new Date(room.lastMessage.createdAt).getTime() >
             new Date(
-              window.localStorage.getItem(
-                `chatspace:last-seen:${room.id}`
-              ) || 0
+              window.localStorage.getItem(`chatspace:last-seen:${room.id}`) || 0
             ).getTime() &&
           seenVersion >= 0
         }
@@ -102,6 +114,41 @@ const ChatRoomList = () => {
         )}
       </InputGroup>
 
+      <div className="room-filter-bar">
+        <div
+          className="room-filter-tabs"
+          role="tablist"
+          aria-label="Filter conversations"
+        >
+          {[
+            ['all', 'All'],
+            ['direct', 'People'],
+            ['group', 'Groups'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={activeFilter === value}
+              className={activeFilter === value ? 'is-active' : ''}
+              onClick={() => setActiveFilter(value)}
+            >
+              {activeFilter === value && <Icon icon="check" />}
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className={`room-refresh-button ${isRefreshing ? 'is-refreshing' : ''}`}
+          onClick={refreshRooms}
+          title="Refresh conversations"
+          aria-label="Refresh conversations"
+        >
+          <Icon icon="refresh" />
+        </button>
+      </div>
+
       <Nav
         appearance="subtle"
         vertical
@@ -119,8 +166,15 @@ const ChatRoomList = () => {
         )}
         {rooms && rooms.length > 0 && filteredRooms.length === 0 && (
           <div className="room-list-empty">
+            <span className="room-list-empty__icon">
+              <Icon icon={search ? 'search' : 'comments-o'} />
+            </span>
             <p>No conversations found</p>
-            <span>Try a different room or message name.</span>
+            <span>
+              {search
+                ? 'Try another name or message.'
+                : `No ${activeFilter === 'direct' ? 'people' : 'group'} chats yet.`}
+            </span>
           </div>
         )}
         {personalRooms.length > 0 && (

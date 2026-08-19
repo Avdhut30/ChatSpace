@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import 'rsuite/dist/styles/rsuite-default.min.css';
 import './styles/main.scss';
+import './styles/android-parity.scss';
 import { Route, Switch } from 'react-router';
 import PrivateRoute from './components/PrivateRoute';
 import PublicRoute from './components/PublicRoute';
