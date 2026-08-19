@@ -436,6 +436,13 @@ const SignIn = () => {
                     <a href="/privacy.html">Privacy</a>
                     <a href="/terms.html">Terms</a>
                     <a
+                      href="https://github.com/Avdhut30/ChatSpace-Android/releases/latest/download/ChatSpace.apk"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Get Android app
+                    </a>
+                    <a
                       href="https://github.com/Avdhut30/ChatSpace"
                       target="_blank"
                       rel="noreferrer"
