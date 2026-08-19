@@ -29,6 +29,18 @@ create table if not exists public.messages (
   created_at timestamptz default now()
 );
 
+
+
+
+
+
+
+
+
+
+
+
+
 alter table public.messages add column if not exists file_path text;
 alter table public.messages add column if not exists file_name text;
 alter table public.messages add column if not exists file_type text;

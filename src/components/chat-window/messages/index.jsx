@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { Alert, Button, Icon } from 'rsuite';
 import { useProfile } from '../../../context/profile.context';
+import { createSignedUrlMap } from '../../../misc/attachments';
 import {
   requestRoomsRefresh,
   subscribeToMessageUpdates,
@@ -14,9 +15,7 @@ const PAGE_SIZE = 15;
 
 function shouldScrollToBottom(node, threshold = 30) {
   if (!node) return false;
-  const percentage =
-    (100 * node.scrollTop) / (node.scrollHeight - node.clientHeight) || 0;
-  return percentage > threshold;
+  return node.scrollHeight - node.scrollTop - node.clientHeight <= threshold;
 }
 
 function formatMessageDate(dateValue) {
@@ -44,6 +43,7 @@ const Messages = ({
   const { profile } = useProfile();
   const [messages, setMessages] = useState(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const [hasMore, setHasMore] = useState(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [deletingIds, setDeletingIds] = useState(new Set());
   const [reactingIds, setReactingIds] = useState(new Set());
@@ -52,6 +52,9 @@ const Messages = ({
   const hasLoadedRef = useRef(false);
   const pendingDeleteIdsRef = useRef(new Set());
   const pendingLikeStateRef = useRef(new Map());
+  const currentChatIdRef = useRef(chatId);
+  const loadedMessageIdsRef = useRef(new Set());
+  const refreshTimerRef = useRef();
 
   const isChatEmpty = messages && messages.length === 0;
   const canShowMessages = messages && messages.length > 0;
@@ -96,6 +99,7 @@ const Messages = ({
       }
 
       if (error) {
+        if (currentChatIdRef.current !== chatId) return;
         if (showErrors) {
           Alert.error(error.message, 4000);
           setMessages([]);
@@ -104,12 +108,13 @@ const Messages = ({
       }
 
       rows = rows || [];
+      if (currentChatIdRef.current !== chatId) return;
       const authorIds = [...new Set(rows.map(message => message.author_id))];
       const messageIds = rows.map(message => message.id);
       const filePaths = rows
         .filter(message => message.file_path)
         .map(message => message.file_path);
-      const [{ data: authors }, { data: likes }, { data: signedFiles }] =
+      const [{ data: authors }, { data: likes }, signedFileMap] =
         await Promise.all([
           authorIds.length
             ? supabase
@@ -123,26 +128,31 @@ const Messages = ({
                 .select('message_id, user_id')
                 .in('message_id', messageIds)
             : Promise.resolve({ data: [] }),
-          filePaths.length
-            ? supabase.storage
-                .from('chat-files')
-                .createSignedUrls(filePaths, 60 * 60)
-            : Promise.resolve({ data: [] }),
+          createSignedUrlMap(
+            supabase.storage.from('chat-files'),
+            filePaths,
+            60 * 60
+          ),
         ]);
 
       const authorMap = Object.fromEntries(
         (authors || []).map(author => [author.id, author])
       );
-      const signedFileMap = Object.fromEntries(
-        (signedFiles || []).map(file => [file.path, file.signedUrl])
+      const likesByMessage = (likes || []).reduce((result, like) => {
+        const key = String(like.message_id);
+        if (!result[key]) result[key] = [];
+        result[key].push(like);
+        return result;
+      }, {});
+      const messagesById = Object.fromEntries(
+        rows.map(message => [String(message.id), message])
       );
+      if (currentChatIdRef.current !== chatId) return;
       const nextMessages = rows
         .filter(message => !pendingDeleteIdsRef.current.has(String(message.id)))
         .map(message => {
           const author = authorMap[message.author_id] || {};
-          const messageLikes = (likes || []).filter(
-            like => String(like.message_id) === String(message.id)
-          );
+          const messageLikes = likesByMessage[String(message.id)] || [];
 
           const pendingLikeState = pendingLikeStateRef.current.get(
             String(message.id)
@@ -154,9 +164,7 @@ const Messages = ({
           if (pendingLikeState === true) likesByUser[profile.uid] = true;
           if (pendingLikeState === false) delete likesByUser[profile.uid];
 
-          const repliedMessage = rows.find(
-            item => String(item.id) === String(message.reply_to)
-          );
+          const repliedMessage = messagesById[String(message.reply_to)];
           const repliedAuthor = repliedMessage
             ? authorMap[repliedMessage.author_id] || {}
             : null;
@@ -199,6 +207,10 @@ const Messages = ({
         })
         .reverse();
 
+      loadedMessageIdsRef.current = new Set(
+        nextMessages.map(message => String(message.id))
+      );
+      setHasMore(rows.length === limitToLast);
       setMessages(current => {
         const pendingMessages = (current || []).filter(
           message => message.isPending
@@ -235,11 +247,25 @@ const Messages = ({
   }, [limit, loadMessages]);
 
   useEffect(() => {
+    currentChatIdRef.current = chatId;
     limitRef.current = PAGE_SIZE;
-    const initialLoadTimer = window.setTimeout(
-      () => loadMessages(PAGE_SIZE),
-      0
-    );
+    hasLoadedRef.current = false;
+    loadedMessageIdsRef.current = new Set();
+
+    const scheduleRefresh = (delay = 80) => {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(
+        () => loadMessages(undefined, false),
+        delay
+      );
+    };
+    const initialLoadTimer = window.setTimeout(() => {
+      setMessages(null);
+      setLimit(PAGE_SIZE);
+      setHasMore(false);
+      setShowJumpToLatest(false);
+      loadMessages(PAGE_SIZE);
+    }, 0);
 
     const channel = supabase
       .channel(`messages:${chatId}`)
@@ -251,12 +277,20 @@ const Messages = ({
           table: 'messages',
           filter: `room_id=eq.${chatId}`,
         },
-        () => loadMessages()
+        () => scheduleRefresh()
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'message_likes' },
-        () => loadMessages()
+        payload => {
+          const messageId = payload.new?.message_id || payload.old?.message_id;
+          if (
+            !messageId ||
+            loadedMessageIdsRef.current.has(String(messageId))
+          ) {
+            scheduleRefresh();
+          }
+        }
       )
       .subscribe();
 
@@ -300,13 +334,18 @@ const Messages = ({
       }, 0);
     });
 
-    const syncTimer = window.setInterval(() => {
-      if (!document.hidden) loadMessages(undefined, false);
-    }, 5000);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) scheduleRefresh(0);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      if (currentChatIdRef.current === chatId) {
+        currentChatIdRef.current = null;
+      }
       window.clearTimeout(initialLoadTimer);
-      window.clearInterval(syncTimer);
+      window.clearTimeout(refreshTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       unsubscribeLocalMessages();
       supabase.removeChannel(channel);
     };
@@ -568,7 +607,7 @@ const Messages = ({
             ))}
           </li>
         )}
-        {messages && messages.length >= PAGE_SIZE && (
+        {messages && hasMore && (
           <li className="message-load-more">
             <Button onClick={onLoadMore} appearance="ghost" size="sm">
               Load earlier messages

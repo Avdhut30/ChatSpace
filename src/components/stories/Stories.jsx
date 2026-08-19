@@ -8,6 +8,7 @@ import React, {
 import { Alert, Button, Icon, Modal } from 'rsuite';
 import TimeAgo from 'timeago-react';
 import { useProfile } from '../../context/profile.context';
+import { createSignedUrlMap } from '../../misc/attachments';
 import { supabase } from '../../misc/supabase';
 import ProfileAvatar from '../ProfileAvatar';
 
@@ -35,9 +36,11 @@ const Stories = () => {
   const [storyFile, setStoryFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const fileInputRef = useRef();
 
   const loadStories = useCallback(async () => {
+    setLoadError('');
     const { data: rows, error } = await supabase
       .from('stories')
       .select(
@@ -52,62 +55,43 @@ const Stories = () => {
         setStories([]);
         return;
       }
-      Alert.error('Stories could not be refreshed', 4000);
+      setLoadError(error.message || 'Stories could not be refreshed');
       return;
     }
 
     setIsAvailable(true);
-    const { data: memberships } = await supabase
-      .from('room_members')
-      .select('room_id, user_id');
-    const sharedRoomIds = new Set(
-      (memberships || [])
-        .filter(member => member.user_id === profile.uid)
-        .map(member => member.room_id)
-    );
-    const visibleStoryAuthors = new Set([
-      profile.uid,
-      ...(memberships || [])
-        .filter(member => sharedRoomIds.has(member.room_id))
-        .map(member => member.user_id),
-    ]);
-    const storyRows = (rows || []).filter(story =>
-      visibleStoryAuthors.has(story.author_id)
-    );
+    // Supabase RLS already returns only stories the signed-in user may see.
+    // Filtering room memberships again hid valid stories when that query failed.
+    const storyRows = rows || [];
     const authorIds = [...new Set(storyRows.map(story => story.author_id))];
     const storyIds = storyRows.map(story => story.id);
     const mediaPaths = storyRows
       .filter(story => story.media_path)
       .map(story => story.media_path);
 
-    const [{ data: authors }, { data: views }, { data: signedMedia }] =
-      await Promise.all([
-        authorIds.length
-          ? supabase
-              .from('profiles')
-              .select('id, name, avatar_url')
-              .in('id', authorIds)
-          : Promise.resolve({ data: [] }),
-        storyIds.length
-          ? supabase
-              .from('story_views')
-              .select('story_id, user_id')
-              .in('story_id', storyIds)
-          : Promise.resolve({ data: [] }),
-        mediaPaths.length
-          ? supabase.storage
-              .from('story-media')
-              .createSignedUrls(mediaPaths, 60 * 60)
-          : Promise.resolve({ data: [] }),
-      ]);
+    const [{ data: authors }, { data: views }, mediaMap] = await Promise.all([
+      authorIds.length
+        ? supabase
+            .from('profiles')
+            .select('id, name, avatar_url')
+            .in('id', authorIds)
+        : Promise.resolve({ data: [] }),
+      storyIds.length
+        ? supabase
+            .from('story_views')
+            .select('story_id, user_id')
+            .in('story_id', storyIds)
+        : Promise.resolve({ data: [] }),
+      createSignedUrlMap(
+        supabase.storage.from('story-media'),
+        mediaPaths,
+        60 * 60
+      ),
+    ]);
 
     const authorMap = Object.fromEntries(
       (authors || []).map(author => [author.id, author])
     );
-    const mediaMap = Object.fromEntries(
-      (signedMedia || []).map(item => [item.path, item.signedUrl])
-    );
-
     setStories(
       storyRows.map(story => {
         const author = authorMap[story.author_id] || {};
@@ -124,8 +108,7 @@ const Stories = () => {
           createdAt: story.created_at,
           expiresAt: story.expires_at,
           viewed: (views || []).some(
-            view =>
-              view.story_id === story.id && view.user_id === profile.uid
+            view => view.story_id === story.id && view.user_id === profile.uid
           ),
         };
       })
@@ -361,27 +344,42 @@ const Stories = () => {
     loadStories();
   };
 
-  if (isAvailable === false) return null;
-
   return (
     <section className="stories-section" aria-label="Stories">
       <div className="stories-heading">
         <span>Stories</span>
-        <small>24h</small>
+        <span className="stories-heading__actions">
+          <small>24h</small>
+          <button
+            type="button"
+            onClick={loadStories}
+            aria-label="Refresh stories"
+            title="Refresh stories"
+          >
+            <Icon icon="refresh" />
+          </button>
+        </span>
       </div>
+      {isAvailable === false && (
+        <div className="stories-status" role="status">
+          Stories need the latest Supabase migration.
+        </div>
+      )}
+      {loadError && (
+        <button type="button" className="stories-status" onClick={loadStories}>
+          Stories could not load. Tap to retry.
+        </button>
+      )}
       <div className="stories-strip custom-scroll">
         <button
           type="button"
           className="story-person story-person--add"
           onClick={() => setIsCreatorOpen(true)}
+          disabled={isAvailable === false}
           aria-label="Add your story"
         >
           <span className="story-avatar-shell">
-            <ProfileAvatar
-              src={profile.avatar}
-              name={profile.name}
-              size="sm"
-            />
+            <ProfileAvatar src={profile.avatar} name={profile.name} size="sm" />
             <i>+</i>
           </span>
           <small>Add story</small>
@@ -412,7 +410,9 @@ const Stories = () => {
                 />
               </span>
               <small>
-                {group.authorId === profile.uid ? 'Your story' : group.authorName}
+                {group.authorId === profile.uid
+                  ? 'Your story'
+                  : group.authorName}
               </small>
             </button>
           );
@@ -436,10 +436,7 @@ const Stories = () => {
             className="visually-hidden"
             onChange={event => chooseStoryFile(event.target.files?.[0])}
           />
-          <div
-            className="story-create-preview"
-            style={{ backgroundColor }}
-          >
+          <div className="story-create-preview" style={{ backgroundColor }}>
             {storyFile?.type.startsWith('video/') ? (
               <video src={previewUrl} controls muted />
             ) : previewUrl ? (

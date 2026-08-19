@@ -1,9 +1,10 @@
 import React, { memo, useState } from 'react';
-import { Alert, Button, Input } from 'rsuite';
+import { Alert, Button, Icon, Input } from 'rsuite';
 import TimeAgo from 'timeago-react';
 import { useCurrentRoom } from '../../../context/current-room.context';
 import { useProfile } from '../../../context/profile.context';
-import { useHover, useMediaQuery } from '../../../misc/custom-hooks';
+import { formatFileSize, getFileKind } from '../../../misc/attachments';
+import { copyText } from '../../../misc/clipboard';
 import PresenceDot from '../../PresenceDot';
 import ProfileAvatar from '../../ProfileAvatar';
 import ProfileInfoBtnModal from './ProfileInfoBtnModal';
@@ -11,42 +12,80 @@ import IconBtnControl from './IconBtnControl';
 import ImgBtnModal from './ImgBtnModal';
 
 const renderFileMessage = file => {
-  if (!file.url) {
-    return <span className="file-unavailable">File preview unavailable</span>;
-  }
+  const kind = getFileKind(file);
+  const size = formatFileSize(file.size);
+  const label = file.name || 'Attachment';
 
-  if (file.contentType?.includes('image')) {
+  if (kind === 'image' && file.url) {
     return (
-      <div className="height-220">
+      <div className="message-attachment message-attachment--image">
         <ImgBtnModal src={file.url} fileName={file.name} />
+        <div className="message-attachment__meta">
+          <span>{label}</span>
+          {size && <small>{size}</small>}
+          <a href={file.url} download={label} title="Download image">
+            <Icon icon="download" />
+          </a>
+        </div>
       </div>
     );
   }
 
-  if (file.contentType?.includes('audio')) {
+  if (kind === 'video' && file.url) {
     return (
-      <audio controls preload="metadata">
-        <source src={file.url} type={file.contentType} />
-        Your browser does not support the audio element.
-      </audio>
+      <div className="message-attachment message-attachment--video">
+        <video controls preload="metadata" src={file.url}>
+          Your browser does not support video playback.
+        </video>
+        <div className="message-attachment__meta">
+          <span>{label}</span>
+          {size && <small>{size}</small>}
+          <a href={file.url} download={label} title="Download video">
+            <Icon icon="download" />
+          </a>
+        </div>
+      </div>
     );
   }
 
-  const isMegabyte = file.size > 1024 * 1024;
-  const size = file.size
-    ? `${Math.max(file.size / (isMegabyte ? 1024 * 1024 : 1024), 1).toFixed(isMegabyte ? 1 : 0)} ${isMegabyte ? 'MB' : 'KB'}`
-    : '';
+  if (kind === 'audio' && file.url) {
+    return (
+      <div className="message-attachment message-attachment--audio">
+        <strong>{label}</strong>
+        <audio controls preload="metadata">
+          <source src={file.url} type={file.contentType} />
+          Your browser does not support the audio element.
+        </audio>
+        {size && <small>{size}</small>}
+      </div>
+    );
+  }
 
   return (
-    <a
-      className="file-download"
-      href={file.url}
-      target="_blank"
-      rel="noreferrer"
-    >
-      <span>Download {file.name}</span>
-      {size && <small>{size}</small>}
-    </a>
+    <div className={`message-attachment message-attachment--${kind}`}>
+      <span className="message-attachment__icon">
+        <Icon icon={kind === 'pdf' ? 'file-pdf-o' : 'file-o'} />
+      </span>
+      <span className="message-attachment__details">
+        <strong>{label}</strong>
+        <small>
+          {kind === 'pdf' ? 'PDF document' : 'Document'}
+          {size ? ` · ${size}` : ''}
+        </small>
+      </span>
+      {file.url ? (
+        <span className="message-attachment__links">
+          <a href={file.url} target="_blank" rel="noreferrer">
+            Open
+          </a>
+          <a href={file.url} download={label} title={`Download ${label}`}>
+            <Icon icon="download" />
+          </a>
+        </span>
+      ) : (
+        <small className="file-unavailable">Unavailable</small>
+      )}
+    </div>
   );
 };
 
@@ -76,8 +115,6 @@ const MessageItem = ({
   const [editText, setEditText] = useState(text || '');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  const [selfHover, isHovered] = useHover();
-  const isMobile = useMediaQuery('(max-width:992px)');
   const { profile } = useProfile();
 
   const isAdmin = useCurrentRoom(v => v.isAdmin);
@@ -88,15 +125,15 @@ const MessageItem = ({
   const isAuthor = profile.uid === author.uid;
   const canGrantAdmin = roomType === 'group' && isAdmin && !isAuthor;
 
-  const canShowIcons = isMobile || isHovered;
+  const canShowIcons = true;
 
   const isLiked = likes && Object.keys(likes).includes(profile.uid);
 
   const handleCopy = async () => {
-    if (!text) return;
-
+    const value = text || file?.name;
     try {
-      await navigator.clipboard.writeText(text);
+      const copied = await copyText(value);
+      if (!copied) throw new Error('Copy command was rejected');
       Alert.success('Message copied');
     } catch {
       Alert.error('Could not copy the message');
@@ -120,7 +157,6 @@ const MessageItem = ({
     <li
       id={`message-${message.id}`}
       className={`message-row ${isAuthor ? 'message-row--self' : ''} ${isDeleting ? 'message-row--deleting' : ''}`}
-      ref={selfHover}
     >
       {!isAuthor && (
         <div className="message-avatar-wrap">
@@ -228,7 +264,7 @@ const MessageItem = ({
                 onClick={() => onReply(message)}
               />
             )}
-            {text && (
+            {(text || file?.name) && (
               <IconBtnControl
                 isVisible={canShowIcons}
                 iconName="copy-o"
@@ -273,6 +309,17 @@ const MessageItem = ({
               </>
             )}
           </div>
+        )}
+        {!isPending && likeCount > 0 && (
+          <button
+            type="button"
+            className={`message-reaction-summary ${isLiked ? 'is-liked' : ''}`}
+            onClick={() => handleLike(message.id)}
+            disabled={isReacting}
+            aria-label={`${likeCount} ${likeCount === 1 ? 'like' : 'likes'}`}
+          >
+            <Icon icon="heart" /> {likeCount}
+          </button>
         )}
       </div>
     </li>
